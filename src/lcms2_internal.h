@@ -86,6 +86,7 @@
 # ifndef vsnprintf
 #       define vsnprintf  _vsnprintf
 # endif
+#define sqrtf(x) (float)sqrt((float)x)
 #endif
 
 // Pthreads. In windows we use the native WIN32 API instead
