@@ -2,7 +2,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2010 Marti Maria Saguer
+//  Copyright (c) 1998-2011 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining 
 // a copy of this software and associated documentation files (the "Software"), 
@@ -326,11 +326,11 @@ static
 int XFormSampler16(register const cmsUInt16Number In[], register cmsUInt16Number Out[], register void* Cargo)
 {
     cmsPipeline* Lut = (cmsPipeline*) Cargo;
-    cmsFloat32Number InFloat[MAXCHANNELS], OutFloat[MAXCHANNELS];
+    cmsFloat32Number InFloat[cmsMAXCHANNELS], OutFloat[cmsMAXCHANNELS];
     cmsUInt32Number i;
 
-    _cmsAssert(Lut -> InputChannels < MAXCHANNELS);
-    _cmsAssert(Lut -> OutputChannels < MAXCHANNELS);
+    _cmsAssert(Lut -> InputChannels < cmsMAXCHANNELS);
+    _cmsAssert(Lut -> OutputChannels < cmsMAXCHANNELS);
 
     // From 16 bit to floating point
     for (i=0; i < Lut ->InputChannels; i++) 
@@ -452,7 +452,7 @@ static
 cmsBool FixWhiteMisalignment(cmsPipeline* Lut, cmsColorSpaceSignature EntryColorSpace, cmsColorSpaceSignature ExitColorSpace)
 {
     cmsUInt16Number *WhitePointIn, *WhitePointOut;
-    cmsUInt16Number  WhiteIn[MAXCHANNELS], WhiteOut[MAXCHANNELS], ObtainedOut[MAXCHANNELS];
+    cmsUInt16Number  WhiteIn[cmsMAXCHANNELS], WhiteOut[cmsMAXCHANNELS], ObtainedOut[cmsMAXCHANNELS];
     cmsUInt32Number i, nOuts, nIns;
     cmsStage *PreLin = NULL, *CLUT = NULL, *PostLin = NULL;
     
@@ -580,7 +580,6 @@ cmsBool OptimizeByResampling(cmsPipeline** Lut, cmsUInt32Number Intent, cmsUInt3
     }
 
     // Allocate the CLUT
-    
     CLUT = cmsStageAllocCLut16bit(Src ->ContextID, nGridPoints, Src ->InputChannels, Src->OutputChannels, NULL);
     if (CLUT == NULL) return FALSE;
 
@@ -611,7 +610,6 @@ cmsBool OptimizeByResampling(cmsPipeline** Lut, cmsUInt32Number Intent, cmsUInt3
 
     // Now its time to do the sampling. We have to ignore pre/post linearization 
     // The source LUT whithout pre/post curves is passed as parameter.
-
     if (!cmsStageSampleCLut16bit(CLUT, XFormSampler16, (void*) Src, 0)) {
 
         // Ops, something went wrong, Restore stages
@@ -694,7 +692,6 @@ void SlopeLimiting(cmsToneCurve* g)
     else {
         BeginVal = 0; EndVal = 0xffff;
     }
-
 
     // Compute slope and offset for begin of curve
     Val   = g ->Table16[AtBegin];
@@ -876,6 +873,27 @@ void PrelinEval8(register const cmsUInt16Number Input[],
 
 #undef DENS
 
+
+// Curves that contain wide empty areas are not optimizeable
+static
+cmsBool IsDegenerated(const cmsToneCurve* g)
+{
+    int i, Zeros = 0, Poles = 0;
+    int nEntries = g ->nEntries;
+
+    for (i=0; i < nEntries; i++) {
+
+        if (g ->Table16[i] == 0x0000) Zeros++;
+        if (g ->Table16[i] == 0xffff) Poles++;
+    }
+
+    if (Zeros == 1 && Poles == 1) return FALSE;  // For linear tables
+    if (Zeros > (nEntries / 4)) return TRUE;  // Degenerated, mostly zeros
+    if (Poles > (nEntries / 4)) return TRUE;  // Degenerated, mostly poles
+
+    return FALSE;
+}
+
 // --------------------------------------------------------------------------------------------------------------
 // We need xput over here
 
@@ -884,9 +902,9 @@ cmsBool OptimizeByComputingLinearization(cmsPipeline** Lut, cmsUInt32Number Inte
 {
     cmsPipeline* OriginalLut;
     int nGridPoints;
-    cmsToneCurve *Trans[MAXCHANNELS], *TransReverse[MAXCHANNELS];
+    cmsToneCurve *Trans[cmsMAXCHANNELS], *TransReverse[cmsMAXCHANNELS];
     cmsUInt32Number t, i;  
-    cmsFloat32Number v, In[MAXCHANNELS], Out[MAXCHANNELS];
+    cmsFloat32Number v, In[cmsMAXCHANNELS], Out[cmsMAXCHANNELS];
     cmsBool lIsSuitable, lIsLinear;
     cmsPipeline* OptimizedLUT = NULL, *LutPlusCurves = NULL;    
     cmsStage* OptimizedCLUTmpe;
@@ -955,7 +973,10 @@ cmsBool OptimizeByComputingLinearization(cmsPipeline** Lut, cmsUInt32Number Inte
 
         // Exclude if non-monotonic
         if (!cmsIsToneCurveMonotonic(Trans[t]))
-            lIsSuitable = FALSE;                             
+            lIsSuitable = FALSE;         
+
+        if (IsDegenerated(Trans[t]))
+            lIsSuitable = FALSE;
     }
 
     // If it is not suitable, just quit
@@ -1128,7 +1149,6 @@ Curves16Data* CurvesAlloc(cmsContext ContextID, int nCurves, int nElements, cmsT
                 c16 ->Curves[i][j] = cmsEvalToneCurve16(G[i], (cmsUInt16Number) j);             
             }
         }
-
     }
 
     return c16;
@@ -1185,7 +1205,7 @@ static
 cmsBool OptimizeByJoiningCurves(cmsPipeline** Lut, cmsUInt32Number Intent, cmsUInt32Number* InputFormat, cmsUInt32Number* OutputFormat, cmsUInt32Number* dwFlags)
 {
     cmsToneCurve** GammaTables = NULL; 
-    cmsFloat32Number InFloat[MAXCHANNELS], OutFloat[MAXCHANNELS];
+    cmsFloat32Number InFloat[cmsMAXCHANNELS], OutFloat[cmsMAXCHANNELS];
     cmsUInt32Number i, j;
     cmsPipeline* Src = *Lut;
     cmsPipeline* Dest = NULL;
@@ -1261,7 +1281,6 @@ cmsBool OptimizeByJoiningCurves(cmsPipeline** Lut, cmsUInt32Number Intent, cmsUI
              *dwFlags |= cmsFLAGS_NOCACHE;
             _cmsPipelineSetOptimizationParameters(Dest, FastEvaluateCurves16, c16, CurvesFree, CurvesDup);          
         }
-
     }
     else {
 
@@ -1318,7 +1337,7 @@ void* DupMatShaper(cmsContext ContextID, const void* Data)
 
 // A fast matrix-shaper evaluator for 8 bits. This is a bit ticky since I'm using 1.14 signed fixed point 
 // to accomplish some performance. Actually it takes 256x3 16 bits tables and 16385 x 3 tables of 8 bits, 
-// in total about 50K, and the performance boot is huge!
+// in total about 50K, and the performance boost is huge!
 static
 void MatShaperEval16(register const cmsUInt16Number In[], 
                      register cmsUInt16Number Out[], 
@@ -1438,7 +1457,6 @@ cmsBool SetMatShaper(cmsPipeline* Dest, cmsToneCurve* Curve1[3], cmsMAT3* Mat, c
             p ->Off[i] = DOUBLE_TO_1FIXED14(Off->n[i]);
         }
     }
-
 
     // Mark as optimized for faster formatter
     if (Is8Bits)

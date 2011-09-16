@@ -36,6 +36,7 @@ static cmsBool IgnoreEmbedded         = FALSE;
 static cmsBool GamutCheck             = FALSE;
 static cmsBool lIsITUFax              = FALSE;
 static cmsBool lIsPhotoshopApp13      = FALSE;
+static cmsBool lIsEXIF;
 static cmsBool lIsDeviceLink          = FALSE;
 static cmsBool EmbedProfile           = FALSE;
 
@@ -46,6 +47,9 @@ static int ProofingIntent          = INTENT_PERCEPTUAL;
 static int PrecalcMode             = 1;
 
 static int jpegQuality             = 75;
+
+static cmsFloat64Number ObserverAdaptationState = 0;
+
 
 static char *cInpProf  = NULL;
 static char *cOutProf  = NULL;
@@ -60,12 +64,13 @@ static struct jpeg_compress_struct   Compressor;
 
 static struct my_error_mgr {
 
-    struct  jpeg_error_mgr pub;  // "public" fields
+    struct  jpeg_error_mgr pub;   // "public" fields
     void*   Cargo;                // "private" fields
 
 } ErrorHandler;
 
 
+cmsUInt16Number Alarm[4] = {128,128,128,0};
 
 // Out of mem
 static
@@ -84,14 +89,39 @@ void my_error_exit (j_common_ptr cinfo)
   FatalError(buffer);
 }
 
+/*
+Definition of the APPn Markers Defined for continuous-tone G3FAX
+
+The application code APP1 initiates identification of the image as 
+a G3FAX application and defines the spatial resolution and subsampling. 
+This marker directly follows the SOI marker. The data format will be as follows:
+
+X'FFE1' (APP1), length, FAX identifier, version, spatial resolution.
+
+The above terms are defined as follows:
+
+Length: (Two octets) Total APP1 field octet count including the octet count itself, but excluding the APP1
+marker.
+
+FAX identifier: (Six octets) X'47', X'33', X'46', X'41', X'58', X'00'. This X'00'-terminated string "G3FAX"
+uniquely identifies this APP1 marker.
+
+Version: (Two octets) X'07CA'. This string specifies the year of approval of the standard, for identification
+in the case of future revision (for example, 1994).
+
+Spatial Resolution: (Two octets) Lightness pixel density in pels/25.4 mm. The basic value is 200. Allowed values are
+100, 200, 300, 400, 600 and 1200 pels/25.4 mm, with square (or equivalent) pels.
+
+NOTE – The functional equivalence of inch-based and mm-based resolutions is maintained. For example, the 200 × 200
+*/
 
 static
 cmsBool IsITUFax(jpeg_saved_marker_ptr ptr)
 {
 	while (ptr) 
 	{
-		if (ptr -> marker == (JPEG_APP0 + 1) && ptr -> data_length > 5)
-		{
+        if (ptr -> marker == (JPEG_APP0 + 1) && ptr -> data_length > 5) {
+            
 			const char* data = (const char*) ptr -> data;
 
 			if (strcmp(data, "G3FAX") == 0) return TRUE;                                
@@ -103,6 +133,7 @@ cmsBool IsITUFax(jpeg_saved_marker_ptr ptr)
 	return FALSE;
 }
 
+// Save a ITU T.42/Fax marker with defaults on boundaries. This is the only mode we support right now.
 static
 void SetITUFax(j_compress_ptr cinfo)
 {    
@@ -141,7 +172,7 @@ void Lab2ITU(const cmsCIELab* Lab, cmsUInt16Number Out[3])
 	Out[2] = (cmsUInt16Number) floor((double) (Lab -> b / 200.)* 65535. + 24576. );
 }
 
-// These are the samplers-- They are passed as callbacks to cmsSample3DGrid()
+// These are the samplers-- They are passed as callbacks to cmsStageSampleCLut16bit()
 // then, cmsSample3DGrid() will sweel whole Lab gamut calling these functions
 // once for each node. In[] will contain the Lab PCS value to convert to ITUFAX
 // on PCS2ITU, or the ITUFAX value to convert to Lab in ITU2PCS
@@ -152,7 +183,7 @@ void Lab2ITU(const cmsCIELab* Lab, cmsUInt16Number Out[3])
 #define GRID_POINTS 33
 
 static
-int PCS2ITU(register cmsUInt16Number In[], register cmsUInt16Number Out[], register void*  Cargo)
+int PCS2ITU(register const cmsUInt16Number In[], register cmsUInt16Number Out[], register void*  Cargo)
 {      
 	cmsCIELab Lab;
 
@@ -160,21 +191,24 @@ int PCS2ITU(register cmsUInt16Number In[], register cmsUInt16Number Out[], regis
 	cmsDesaturateLab(&Lab, 85, -85, 125, -75);    // This function does the necessary gamut remapping  
 	Lab2ITU(&Lab, Out);
 	return TRUE;
+
+    UTILS_UNUSED_PARAMETER(Cargo);
 }
 
 
 static
-int ITU2PCS(const register cmsUInt16Number In[], register cmsUInt16Number Out[], register void*  Cargo)
+int ITU2PCS( register const cmsUInt16Number In[], register cmsUInt16Number Out[], register void*  Cargo)
 {   
 	cmsCIELab Lab;
 
 	ITU2Lab(In, &Lab);
 	cmsFloat2LabEncoded(Out, &Lab);    
 	return TRUE;
+
+    UTILS_UNUSED_PARAMETER(Cargo);
 }
 
-// This function does create the virtual input profile, which decoded ITU  
-// to the profile connection space
+// This function does create the virtual input profile, which decodes ITU to the profile connection space
 static
 cmsHPROFILE CreateITU2PCS_ICC(void)
 {	
@@ -204,6 +238,40 @@ cmsHPROFILE CreateITU2PCS_ICC(void)
 	cmsPipelineFree(AToB0);
 
 	return hProfile;
+}
+
+
+// This function does create the virtual output profile, with the necessary gamut mapping 
+static
+cmsHPROFILE CreatePCS2ITU_ICC(void)
+{
+    cmsHPROFILE hProfile;
+    cmsPipeline* BToA0;
+    cmsStage* ColorMap;
+        
+    BToA0 = cmsPipelineAlloc(0, 3, 3);
+    if (BToA0 == NULL) return NULL;
+
+    ColorMap = cmsStageAllocCLut16bit(0, GRID_POINTS, 3, 3, NULL);
+    if (ColorMap == NULL) return NULL;
+
+    cmsPipelineInsertStage(BToA0, cmsAT_BEGIN, ColorMap);
+    cmsStageSampleCLut16bit(ColorMap, PCS2ITU, NULL, 0);
+
+    hProfile = cmsCreateProfilePlaceholder(0);
+    if (hProfile == NULL) {
+        cmsPipelineFree(BToA0);
+        return NULL;
+    }
+
+    cmsWriteTag(hProfile, cmsSigBToA0Tag, BToA0); 
+    cmsSetColorSpace(hProfile, cmsSigLabData);
+    cmsSetPCS(hProfile, cmsSigLabData);
+    cmsSetDeviceClass(hProfile, cmsSigColorSpaceClass); 
+
+    cmsPipelineFree(BToA0);
+
+    return hProfile;
 }
 
 
@@ -240,9 +308,9 @@ cmsBool ProcessPhotoshopAPP13(JOCTET FAR *data, int datalen)
         
         if (type == 0x03ED && len >= 16) {
             
-            Decompressor.X_density = (int) PS_FIXED_TO_FLOAT(GETJOCTET(data[i]<<8) + GETJOCTET(data[i+1]),
+            Decompressor.X_density = (UINT16) PS_FIXED_TO_FLOAT(GETJOCTET(data[i]<<8) + GETJOCTET(data[i+1]),
                                                  GETJOCTET(data[i+2]<<8) + GETJOCTET(data[i+3]));
-            Decompressor.Y_density = (int) PS_FIXED_TO_FLOAT(GETJOCTET(data[i+8]<<8) + GETJOCTET(data[i+9]),
+            Decompressor.Y_density = (UINT16) PS_FIXED_TO_FLOAT(GETJOCTET(data[i+8]<<8) + GETJOCTET(data[i+9]),
                                                  GETJOCTET(data[i+10]<<8) + GETJOCTET(data[i+11]));
             
             // Set the density unit to 1 since the 
@@ -290,6 +358,187 @@ cmsBool HandlePhotoshopAPP13(jpeg_saved_marker_ptr ptr)
     return FALSE;    
 }
 
+
+typedef unsigned short uint16_t;
+typedef unsigned char uint8_t;
+typedef unsigned int uint32_t;
+
+#define INTEL_BYTE_ORDER 0x4949
+#define XRESOLUTION 0x011a
+#define YRESOLUTION 0x011b
+#define RESOLUTION_UNIT 0x128
+
+// Read a 16-bit word
+static
+uint16_t read16(uint8_t* arr, int pos,  int swapBytes) 
+{ 
+    uint8_t b1 = arr[pos];
+    uint8_t b2 = arr[pos+1];
+    
+    return (swapBytes) ?  ((b2 << 8) | b1) : ((b1 << 8) | b2);
+}
+
+
+// Read a 32-bit word
+static
+uint32_t read32(uint8_t* arr, int pos,  int swapBytes)
+{
+  
+    if(!swapBytes) {
+
+        return (arr[pos]   << 24) | 
+               (arr[pos+1] << 16) | 
+               (arr[pos+2] << 8) | 
+                arr[pos+3];
+    }
+
+    return arr[pos] | 
+           (arr[pos+1] << 8) | 
+           (arr[pos+2] << 16) | 
+           (arr[pos+3] << 24);
+}
+
+
+
+static
+int read_tag(uint8_t* arr, int pos,  int swapBytes, void* dest)
+{
+        // Format should be 5 over here (rational)
+    uint32_t format = read16(arr, pos + 2, swapBytes);
+    // Components should be 1
+    uint32_t components = read32(arr, pos + 4, swapBytes);
+    // Points to the value
+    uint32_t offset;
+    
+    // sanity
+    if (components != 1) return 0;
+
+    if (format == 3) 
+        offset = pos + 8;
+    else
+        offset =  read32(arr, pos + 8, swapBytes);
+
+    switch (format) {
+
+    case 5: // Rational
+          {
+          double num = read32(arr, offset, swapBytes);
+          double den = read32(arr, offset + 4, swapBytes);
+          *(double *) dest = num / den;
+          }
+          break;
+
+    case 3: // uint 16
+        *(int*) dest = read16(arr, offset, swapBytes);
+        break;
+
+    default:  return 0;
+    }
+
+    return 1;
+}
+
+
+
+// Handler for EXIF data
+static
+    cmsBool HandleEXIF(struct jpeg_decompress_struct* cinfo)
+{
+    jpeg_saved_marker_ptr ptr;
+    uint32_t ifd_ofs;
+    int pos = 0, swapBytes = 0;
+    uint32_t i, numEntries;
+    double XRes = -1, YRes = -1;
+    int Unit = 2; // Inches
+
+
+    for (ptr = cinfo ->marker_list; ptr; ptr = ptr ->next) {
+
+        if ((ptr ->marker == JPEG_APP0+1) && ptr ->data_length > 6) {
+            JOCTET FAR* data = ptr -> data;   
+
+            if (memcmp(data, "Exif\0\0", 6) == 0) {
+
+                data += 6; // Skip EXIF marker
+
+                // 8 byte TIFF header
+                // first two determine byte order
+                pos = 0;
+                if (read16(data, pos, 0) == INTEL_BYTE_ORDER) {
+                    swapBytes = 1;
+                }
+
+                pos += 2;
+
+                // next two bytes are always 0x002A (TIFF version)
+                pos += 2;
+
+                // offset to Image File Directory (includes the previous 8 bytes)
+                ifd_ofs = read32(data, pos, swapBytes);
+
+                // Search the directory for resolution tags          
+                numEntries = read16(data, ifd_ofs, swapBytes);
+
+                for (i=0; i < numEntries; i++) {
+
+                    uint32_t entryOffset = ifd_ofs + 2 + (12 * i);
+                    uint32_t tag = read16(data, entryOffset, swapBytes);
+
+                    switch (tag) {
+
+                    case RESOLUTION_UNIT:
+                        if (!read_tag(data, entryOffset, swapBytes, &Unit)) return FALSE;
+                        break;
+
+                    case XRESOLUTION:
+                        if (!read_tag(data, entryOffset, swapBytes, &XRes)) return FALSE;
+                        break;
+
+                    case YRESOLUTION:
+                        if (!read_tag(data, entryOffset, swapBytes, &YRes)) return FALSE;
+                        break;
+
+                    default:;
+                    }
+
+                }
+
+                // Proceed if all found
+
+                if (XRes != -1 && YRes != -1) 
+                {
+
+                    // 1 = None 
+                    // 2 = inches 
+                    // 3 = cm
+
+                    switch (Unit) {
+
+                    case 2:
+                    
+                        cinfo ->X_density = (UINT16) floor(XRes + 0.5);
+                        cinfo ->Y_density = (UINT16) floor(YRes + 0.5);
+                        break;
+
+                    case 1:
+
+                        cinfo ->X_density = (UINT16) floor(XRes * 2.54 + 0.5);
+                        cinfo ->Y_density = (UINT16) floor(YRes * 2.54 + 0.5);
+                        break;
+
+                    default: return FALSE;
+                    }
+
+                    cinfo ->density_unit = 1;  /* 1 for dots/inch, or 2 for dots/cm.*/
+
+                }
+
+
+            }
+        }    
+    }
+    return FALSE;
+}
 
 
 static
@@ -345,7 +594,7 @@ cmsBool OpenOutput(const char* FileName)
 }
 
 static
-cmsBool Done()
+cmsBool Done(void)
 {
 	jpeg_destroy_decompress(&Decompressor);
 	jpeg_destroy_compress(&Compressor);
@@ -361,9 +610,9 @@ cmsUInt32Number GetInputPixelType(void)
 {
      int space, bps, extra, ColorChannels, Flavor;
         
-   
      lIsITUFax         = IsITUFax(Decompressor.marker_list);
      lIsPhotoshopApp13 = HandlePhotoshopAPP13(Decompressor.marker_list);
+     lIsEXIF           = HandleEXIF(&Decompressor);
 
      ColorChannels = Decompressor.num_components;
      extra  = 0;            // Alpha = None
@@ -440,7 +689,6 @@ cmsUInt32Number ComputeOutputFormatDescriptor(cmsUInt32Number dwInput, int OutCo
    case PT_CMYK:
 	   if (Compressor.write_Adobe_marker)   // Adobe keeps CMYK inverted, so change flavor to chocolate
 		   Flavor = 1;
-
 	   Channels = 4;
 	   break;
    default:
@@ -555,6 +803,7 @@ void WriteOutputFields(int OutputColorSpace)
     jpeg_set_defaults(&Compressor);
     jpeg_set_colorspace(&Compressor, jpeg_space);
 
+
     // Make sure to pass resolution through
     if (OutputColorSpace == PT_CMYK)
         Compressor.write_JFIF_header = 1;
@@ -598,7 +847,7 @@ void DoEmbedProfile(const char* ProfileFile)
 
 
 static
-int DoTransform(cmsHTRANSFORM hXForm)
+int DoTransform(cmsHTRANSFORM hXForm, int OutputColorSpace)
 {       
     JSAMPROW ScanLineIn;
     JSAMPROW ScanLineOut;
@@ -614,6 +863,9 @@ int DoTransform(cmsHTRANSFORM hXForm)
      
        jpeg_start_decompress(&Decompressor);
        jpeg_start_compress(&Compressor, TRUE);
+
+        if (OutputColorSpace == PT_Lab)
+            SetITUFax(&Compressor);
 
        // Embed the profile if needed
        if (EmbedProfile && cOutProf) 
@@ -657,6 +909,8 @@ int TransformImage(char *cDefInpProf, char *cOutProf)
        cmsUInt8Number* EmbedBuffer;
 
 
+       cmsSetAdaptationState(ObserverAdaptationState);
+
        if (BlackPointCompensation) {
 
             dwFlags |= cmsFLAGS_BLACKPOINTCOMPENSATION;            
@@ -672,9 +926,13 @@ int TransformImage(char *cDefInpProf, char *cOutProf)
        }
         
 
-       if (GamutCheck)
+       if (GamutCheck) {
             dwFlags |= cmsFLAGS_GAMUTCHECK;
+            cmsSetAlarmCodes(Alarm);
+       }
         
+       // Take input color space
+       wInput = GetInputPixelType();
 
         if (lIsDeviceLink) {
 
@@ -702,22 +960,36 @@ int TransformImage(char *cDefInpProf, char *cOutProf)
         }
         else
         {
+            // Default for ITU/Fax
+            if (cDefInpProf == NULL && T_COLORSPACE(wInput) == PT_Lab)
+                cDefInpProf = "*Lab";
+
+            if (cDefInpProf != NULL && cmsstrcasecmp(cDefInpProf, "*lab") == 0)
+                hIn = CreateITU2PCS_ICC();
+            else
                 hIn = OpenStockProfile(0, cDefInpProf);
        }
 
+        if (cOutProf != NULL && cmsstrcasecmp(cOutProf, "*lab") == 0)
+            hOut = CreatePCS2ITU_ICC();
+        else
         hOut = OpenStockProfile(0, cOutProf);
-
 
        hProof = NULL;
        if (cProofing != NULL) {
 
            hProof = OpenStockProfile(0, cProofing);
+           if (hProof == NULL) {
+            FatalError("Proofing profile couldn't be read.");
+           }
            dwFlags |= cmsFLAGS_SOFTPROOFING;
           }
        }
 
-       // Take input color space
-       wInput = GetInputPixelType();
+        if (!hIn)
+            FatalError("Input profile couldn't be read.");
+        if (!hOut)
+            FatalError("Output profile couldn't be read.");
 
        // Assure both, input profile and input JPEG are on same colorspace       
        if (cmsGetColorSpace(hIn) != _cmsICCcolorSpace(T_COLORSPACE(wInput)))
@@ -739,12 +1011,15 @@ int TransformImage(char *cDefInpProf, char *cOutProf)
        
        wOutput      = ComputeOutputFormatDescriptor(wInput, OutputColorSpace);
        
+      
        xform = cmsCreateProofingTransform(hIn, wInput, 
                                           hOut, wOutput, 
                                           hProof, Intent, 
                                           ProofingIntent, dwFlags);
+	   if (xform == NULL) 
+                 FatalError("Cannot transform by using the profiles");
   
-       DoTransform(xform);
+       DoTransform(xform, OutputColorSpace);
 
        
        jcopy_markers_execute(&Decompressor, &Compressor);
@@ -763,7 +1038,7 @@ int TransformImage(char *cDefInpProf, char *cOutProf)
 static
 void Help(int level)
 {
-	 fprintf(stderr, "little cms ICC profile applier for JPEG - v3.0 [LittleCMS %2.2f]\n\n", LCMS_VERSION / 1000.0);
+     fprintf(stderr, "little cms ICC profile applier for JPEG - v3.1 [LittleCMS %2.2f]\n\n", LCMS_VERSION / 1000.0);
 
      switch(level) {
 
@@ -781,6 +1056,7 @@ void Help(int level)
 
      
      fprintf(stderr, "%cb - Black point compensation\n", SW);     
+     fprintf(stderr, "%cd<0..1> - Observer adaptation state (abs.col. only)\n", SW);
      fprintf(stderr, "%cn - Ignore embedded profile\n", SW);
      fprintf(stderr, "%ce - Embed destination profile\n", SW);
      fprintf(stderr, "%cs<new profile> - Save embedded profile as <new profile>\n", SW);
@@ -793,17 +1069,17 @@ void Help(int level)
      fprintf(stderr, "%cp<profile> - Soft proof profile\n", SW);
      fprintf(stderr, "%cm<0,1,2,3> - SoftProof intent\n", SW);
      fprintf(stderr, "%cg - Marks out-of-gamut colors on softproof\n", SW);
+     fprintf(stderr, "%c!<r>,<g>,<b> - Out-of-gamut marker channel values\n", SW);
 
      fprintf(stderr, "\n");
      fprintf(stderr, "%cq<0..100> - Output JPEG quality\n", SW);
 
      fprintf(stderr, "\n");
-     fprintf(stderr, "%ch<0,1,2> - More help\n", SW);
+     fprintf(stderr, "%ch<0,1,2,3> - More help\n", SW);
      break;
 
      case 1:
 
-     
      fprintf(stderr, "Examples:\n\n"
                      "To color correct from scanner to sRGB:\n"
                      "\tjpegicc %ciscanner.icm in.jpg out.jpg\n"
@@ -814,11 +1090,15 @@ void Help(int level)
                      "To recover sRGB from a CMYK separation:\n"
                      "\tjpegicc %ciprinter.icm incmyk.jpg outrgb.jpg\n"
                      "To convert from CIELab ITU/Fax JPEG to sRGB\n"
-                     "\tjpegicc %ciitufax.icm in.jpg out.jpg\n\n", 
+                     "\tjpegicc in.jpg out.jpg\n\n", 
                      SW, SW, SW, SW, SW, SW);
      break;
 
      case 2:
+		 PrintBuiltins();
+		 break;
+
+     case 3:
 
      fprintf(stderr, "This program is intended to be a demo of the little cms\n"
                      "engine. Both lcms and this program are freeware. You can\n"
@@ -839,7 +1119,7 @@ void HandleSwitches(int argc, char *argv[])
 {
     int s;
     
-    while ((s=xgetopt(argc,argv,"bBnNvVGgh:H:i:I:o:O:P:p:t:T:c:C:Q:q:M:m:L:l:eEs:S:")) != EOF) {
+    while ((s=xgetopt(argc,argv,"bBnNvVGgh:H:i:I:o:O:P:p:t:T:c:C:Q:q:M:m:L:l:eEs:S:!:D:d:")) != EOF) {
         
         switch (s)
         {
@@ -847,6 +1127,13 @@ void HandleSwitches(int argc, char *argv[])
         case 'b':
         case 'B':
             BlackPointCompensation = TRUE;
+            break;
+            
+        case 'd':
+        case 'D': ObserverAdaptationState = atof(xoptarg);
+            if (ObserverAdaptationState < 0 || 
+                ObserverAdaptationState > 1.0)
+                FatalError("Adaptation state should be 0..1");
             break;
             
         case 'v':
@@ -936,6 +1223,14 @@ void HandleSwitches(int argc, char *argv[])
         case 'S': SaveEmbedded = xoptarg;
             break;
             
+        case '!':       
+            if (sscanf(xoptarg, "%hu,%hu,%hu", &Alarm[0], &Alarm[1], &Alarm[2]) == 3) {
+                int i;
+                for (i=0; i < 3; i++) {
+                    Alarm[i] = (Alarm[i] << 8) | Alarm[i];
+                }
+            }
+            break;
             
         default:
             
@@ -953,12 +1248,12 @@ int main(int argc, char* argv[])
 	HandleSwitches(argc, argv);
 
 	if ((argc - xoptind) != 2) {
-
 		Help(0);              
 	}
 
 	OpenInput(argv[xoptind]);
 	OpenOutput(argv[xoptind+1]);
+
 	TransformImage(cInpProf, cOutProf);
 
 

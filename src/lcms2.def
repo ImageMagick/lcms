@@ -1,4 +1,4 @@
-LIBRARY     LCMS2.DLL
+LIBRARY
 
 EXPORTS
 
@@ -211,6 +211,7 @@ cmsStageAllocMatrix                      =    cmsStageAllocMatrix
 _cmsStageAllocPlaceholder                =    _cmsStageAllocPlaceholder
 cmsStageDup                              =    cmsStageDup
 cmsStageFree                             =    cmsStageFree
+cmsStageNext                             =    cmsStageNext
 cmsStageInputChannels                    =    cmsStageInputChannels
 cmsStageOutputChannels                   =    cmsStageOutputChannels
 cmsStageSampleCLut16bit                  =    cmsStageSampleCLut16bit
@@ -296,3 +297,4 @@ cmsXYZ2xyY                               =   cmsXYZ2xyY
 cmsXYZEncoded2Float                      =   cmsXYZEncoded2Float
 cmsSliceSpace16                          =   cmsSliceSpace16
 cmsSliceSpaceFloat                       =   cmsSliceSpaceFloat
+cmsChangeBuffersFormat                   =   cmsChangeBuffersFormat

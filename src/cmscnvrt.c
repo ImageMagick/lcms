@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2010 Marti Maria Saguer
+//  Copyright (c) 1998-2011 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining 
 // a copy of this software and associated documentation files (the "Software"), 
@@ -230,23 +230,23 @@ cmsBool  ComputeAbsoluteIntent(cmsFloat64Number AdaptationState,
         _cmsVEC3init(&Scale.v[1], 0,  WhitePointIn->Y / WhitePointOut->Y, 0);
         _cmsVEC3init(&Scale.v[2], 0, 0,  WhitePointIn->Z / WhitePointOut->Z);
 
-        m1 = *ChromaticAdaptationMatrixIn;
+        m1 = *ChromaticAdaptationMatrixOut;
         if (!_cmsMAT3inverse(&m1, &m2)) return FALSE; 
         _cmsMAT3per(&m3, &m2, &Scale);
 
-        // m3 holds CHAD from input white to D50 times abs. col. scaling
+        // m3 holds CHAD from output white to D50 times abs. col. scaling
         if (AdaptationState == 0.0) {
 
             // Observer is not adapted, undo the chromatic adaptation
-            _cmsMAT3per(m, &m3, ChromaticAdaptationMatrixOut);
+            _cmsMAT3per(m, &m3, ChromaticAdaptationMatrixIn);
 
         } else {
 
             cmsMAT3 MixedCHAD;
             cmsFloat64Number TempSrc, TempDest, Temp;
 
-            TempSrc  = CHAD2Temp(ChromaticAdaptationMatrixIn);  // K for source white
-            TempDest = CHAD2Temp(ChromaticAdaptationMatrixOut); // K for dest white
+            TempSrc  = CHAD2Temp(ChromaticAdaptationMatrixIn);  
+            TempDest = CHAD2Temp(ChromaticAdaptationMatrixOut); 
 
             if (TempSrc < 0.0 || TempDest < 0.0) return FALSE; // Something went wrong
 
@@ -256,7 +256,7 @@ cmsBool  ComputeAbsoluteIntent(cmsFloat64Number AdaptationState,
                 return TRUE;
             }
 
-            Temp = AdaptationState * TempSrc + (1.0 - AdaptationState) * TempDest;
+            Temp = AdaptationState * TempDest + (1.0 - AdaptationState) * TempSrc;
 
             // Get a CHAD from D50 to whatever output temperature. This replaces output CHAD
             Temp2CHAD(&MixedCHAD, Temp);
@@ -460,11 +460,13 @@ cmsPipeline* DefaultICCintents(cmsContext       ContextID,
     cmsProfileClassSignature ClassSig;
     cmsUInt32Number  i, Intent;
 
+    // For safety
+    if (nProfiles == 0) return NULL;
+
     // Allocate an empty LUT for holding the result. 0 as channel count means 'undefined'
     Result = cmsPipelineAlloc(ContextID, 0, 0);
     if (Result == NULL) return NULL;
 
-    // First profile is used as input unless devicelink or abstract
     CurrentColorSpace = cmsGetColorSpace(hProfiles[0]);    
 
     for (i=0; i < nProfiles; i++) {
@@ -474,8 +476,16 @@ cmsPipeline* DefaultICCintents(cmsContext       ContextID,
         hProfile      = hProfiles[i];
         ClassSig      = cmsGetDeviceClass(hProfile);
         lIsDeviceLink = (ClassSig == cmsSigLinkClass || ClassSig == cmsSigAbstractClass );
+
+        // First profile is used as input unless devicelink or abstract
+        if ((i == 0) && !lIsDeviceLink) {
+            lIsInput = TRUE;
+        }
+        else {
+          // Else use profile in the input direction if current space is not PCS
         lIsInput      = (CurrentColorSpace != cmsSigXYZData) &&
                         (CurrentColorSpace != cmsSigLabData);
+        }
 
         Intent        = TheIntents[i];
 
@@ -498,7 +508,7 @@ cmsPipeline* DefaultICCintents(cmsContext       ContextID,
 
         // If devicelink is found, then no custom intent is allowed and we can 
         // read the LUT to be applied. Settings don't apply here.       
-        if (lIsDeviceLink) {
+        if (lIsDeviceLink || ((ClassSig == cmsSigNamedColorClass) && (nProfiles == 1))) {
 
             // Get the involved LUT from the profile
             Lut = _cmsReadDevicelinkLUT(hProfile, Intent);
@@ -649,6 +659,7 @@ cmsPipeline*  BlackPreservingKOnlyIntents(cmsContext     ContextID,
         cmsGetColorSpace(hProfiles[nProfiles-1]) != cmsSigCmykData) 
            return DefaultICCintents(ContextID, nProfiles, ICCIntents, hProfiles, BPC, AdaptationStates, dwFlags);
 
+    memset(&bp, 0, sizeof(bp));
 
     // Allocate an empty LUT for holding the result
     Result = cmsPipelineAlloc(ContextID, 4, 4);
@@ -663,6 +674,8 @@ cmsPipeline*  BlackPreservingKOnlyIntents(cmsContext     ContextID,
         AdaptationStates,
         dwFlags);
 
+    if (bp.cmyk2cmyk == NULL) goto Error;
+    
     // Now, compute the tone curve
     bp.KTone = _cmsBuildKToneCurve(ContextID, 
         4096, 
@@ -673,24 +686,36 @@ cmsPipeline*  BlackPreservingKOnlyIntents(cmsContext     ContextID,
         AdaptationStates,
         dwFlags);
     
+    if (bp.KTone == NULL) goto Error;
+
+    
     // How many gridpoints are we going to use?
     nGridPoints = _cmsReasonableGridpointsByColorspace(cmsSigCmykData, dwFlags);
     
     // Create the CLUT. 16 bits
     CLUT = cmsStageAllocCLut16bit(ContextID, nGridPoints, 4, 4, NULL);
-    if (CLUT == NULL) return NULL;
-
-    // Sample it. We cannot afford pre/post linearization this time.
-    if (!cmsStageSampleCLut16bit(CLUT, BlackPreservingGrayOnlySampler, (void*) &bp, 0)) return NULL;
+    if (CLUT == NULL) goto Error;
 
     // This is the one and only MPE in this LUT
     cmsPipelineInsertStage(Result, cmsAT_BEGIN, CLUT);
 
+    // Sample it. We cannot afford pre/post linearization this time.
+    if (!cmsStageSampleCLut16bit(CLUT, BlackPreservingGrayOnlySampler, (void*) &bp, 0)) 
+        goto Error;
+    
     // Get rid of xform and tone curve
     cmsPipelineFree(bp.cmyk2cmyk);
     cmsFreeToneCurve(bp.KTone);
 
     return Result;
+
+Error:
+
+    if (bp.cmyk2cmyk != NULL) cmsPipelineFree(bp.cmyk2cmyk);
+    if (bp.KTone != NULL)  cmsFreeToneCurve(bp.KTone);
+    if (Result != NULL) cmsPipelineFree(Result);
+    return NULL;
+
 }
 
 // K Plane-preserving CMYK to CMYK ------------------------------------------------------------------------------------
@@ -822,7 +847,8 @@ cmsPipeline* BlackPreservingKPlaneIntents(cmsContext     ContextID,
 
     // Check for non-cmyk profiles
     if (cmsGetColorSpace(hProfiles[0]) != cmsSigCmykData ||
-        cmsGetColorSpace(hProfiles[nProfiles-1]) != cmsSigCmykData) 
+        cmsGetColorSpace(hProfiles[nProfiles-1]) != cmsSigCmykData ||
+        cmsGetDeviceClass(hProfiles[nProfiles-1]) != cmsSigOutputClass) 
            return  DefaultICCintents(ContextID, nProfiles, ICCIntents, hProfiles, BPC, AdaptationStates, dwFlags);
 
     // Allocate an empty LUT for holding the result
@@ -839,6 +865,8 @@ cmsPipeline* BlackPreservingKPlaneIntents(cmsContext     ContextID,
 
     // Get total area coverage (in 0..1 domain)
     bp.MaxTAC = cmsDetectTAC(hProfiles[nProfiles-1]) / 100.0;
+    if (bp.MaxTAC <= 0) goto Cleanup;
+
 
     // Create a LUT holding normal ICC transform
     bp.cmyk2cmyk = DefaultICCintents(ContextID,
@@ -848,6 +876,7 @@ cmsPipeline* BlackPreservingKPlaneIntents(cmsContext     ContextID,
                                          BPC,
                                          AdaptationStates,
                                          dwFlags);
+    if (bp.cmyk2cmyk == NULL) goto Cleanup;
 
     // Now the tone curve
     bp.KTone = _cmsBuildKToneCurve(ContextID, 4096, nProfiles,
@@ -856,7 +885,7 @@ cmsPipeline* BlackPreservingKPlaneIntents(cmsContext     ContextID,
                                    BPC, 
                                    AdaptationStates,
                                    dwFlags);
-
+    if (bp.KTone == NULL) goto Cleanup;
 
     // To measure the output, Last profile to Lab
     hLab = cmsCreateLab4ProfileTHR(ContextID, NULL);
@@ -864,12 +893,15 @@ cmsPipeline* BlackPreservingKPlaneIntents(cmsContext     ContextID,
                                          CHANNELS_SH(4)|BYTES_SH(2), hLab, TYPE_Lab_DBL, 
                                          INTENT_RELATIVE_COLORIMETRIC, 
                                          cmsFLAGS_NOCACHE|cmsFLAGS_NOOPTIMIZE);
+    if ( bp.hProofOutput == NULL) goto Cleanup;
 
     // Same as anterior, but lab in the 0..1 range
     bp.cmyk2Lab = cmsCreateTransformTHR(ContextID, hProfiles[nProfiles-1], 
-                                         CHANNELS_SH(4)|BYTES_SH(4), hLab, CHANNELS_SH(3)|BYTES_SH(4), 
+                                         FLOAT_SH(1)|CHANNELS_SH(4)|BYTES_SH(4), hLab, 
+										 FLOAT_SH(1)|CHANNELS_SH(3)|BYTES_SH(4), 
                                          INTENT_RELATIVE_COLORIMETRIC, 
                                          cmsFLAGS_NOCACHE|cmsFLAGS_NOOPTIMIZE);
+    if (bp.cmyk2Lab == NULL) goto Cleanup;
     cmsCloseProfile(hLab);
 
     // Error estimation (for debug only)
@@ -944,7 +976,10 @@ cmsPipeline* _cmsLinkProfiles(cmsContext     ContextID,
     // preserve primaries. This solution is not perfect, but works well on most cases.
 
     Intent = SearchIntent(TheIntents[0]);
-    if (Intent == NULL) return NULL;
+	if (Intent == NULL) {
+		cmsSignalError(ContextID, cmsERROR_UNKNOWN_EXTENSION, "Unsupported intent '%d'", TheIntents[0]);
+		return NULL;
+	}
 
     // Call the handler
     return Intent ->Link(ContextID, nProfiles, TheIntents, hProfiles, BPC, AdaptationStates, dwFlags);

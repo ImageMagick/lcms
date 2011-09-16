@@ -46,7 +46,7 @@ static int ProofingIntent          = INTENT_PERCEPTUAL;
 static int PrecalcMode             = 1;
 static cmsFloat64Number InkLimit   = 400;
 
-static cmsFloat64Number ObserverAdaptationState = 0;
+static cmsFloat64Number ObserverAdaptationState  = 1.0;  // According ICC 4.2 this is the default
 
 static const char *cInpProf  = NULL;
 static const char *cOutProf  = NULL;
@@ -119,7 +119,7 @@ static int FromLabV2ToLabV4(int x)
 {
     int a;
 
-    a = (x << 8 | x) >> 8;  // * 257 / 256
+    a = ((x << 8) | x) >> 8;  // * 257 / 256
     if ( a > 0xffff) return 0xffff;
     return a;
 }
@@ -143,6 +143,9 @@ unsigned char* UnrollTIFFLab8(struct _cmstransform_struct* CMMcargo,
     wIn[2] = (cmsUInt16Number) FromLabV2ToLabV4(((accum[2] > 127) ? (accum[2] - 128) : (accum[2] + 128)) << 8);
 
     return accum + 3;
+
+    UTILS_UNUSED_PARAMETER(Stride);
+    UTILS_UNUSED_PARAMETER(CMMcargo);
 }
 
 static
@@ -162,6 +165,9 @@ unsigned char* PackTIFFLab8(struct _cmstransform_struct* CMMcargo,
     *output++ = (cmsUInt8Number) ((b < 128) ? (b + 128) : (b - 128));
 
     return output;
+
+    UTILS_UNUSED_PARAMETER(Stride);
+    UTILS_UNUSED_PARAMETER(CMMcargo);
 }
 
 
@@ -192,7 +198,7 @@ cmsUInt32Number GetInputPixelType(TIFF *Bank)
 {
     uint16 Photometric, bps, spp, extra, PlanarConfig, *info;
     uint16 Compression, reverse = 0;
-    int ColorChannels, IsPlanar = 0, pt = 0;
+    int ColorChannels, IsPlanar = 0, pt = 0, IsFlt;
 
     TIFFGetField(Bank,           TIFFTAG_PHOTOMETRIC,   &Photometric);
     TIFFGetFieldDefaulted(Bank,  TIFFTAG_BITSPERSAMPLE, &bps);
@@ -298,8 +304,9 @@ cmsUInt32Number GetInputPixelType(TIFF *Bank)
     // Convert bits per sample to bytes per sample
 
     bps >>= 3; 
+    IsFlt = (bps == 0) || (bps == 4);
 
-    return (COLORSPACE_SH(pt)|PLANAR_SH(IsPlanar)|EXTRA_SH(extra)|CHANNELS_SH(ColorChannels)|BYTES_SH(bps)|FLAVOR_SH(reverse));
+    return (FLOAT_SH(IsFlt)|COLORSPACE_SH(pt)|PLANAR_SH(IsPlanar)|EXTRA_SH(extra)|CHANNELS_SH(ColorChannels)|BYTES_SH(bps)|FLAVOR_SH(reverse));
 }
 
 
@@ -310,8 +317,9 @@ cmsUInt32Number ComputeOutputFormatDescriptor(cmsUInt32Number dwInput, int OutCo
 {
     int IsPlanar  = T_PLANAR(dwInput);
     int Channels  = ChanCountFromPixelType(OutColorSpace);
+    int IsFlt = (bps == 0) || (bps == 4);
 
-    return (COLORSPACE_SH(OutColorSpace)|PLANAR_SH(IsPlanar)|CHANNELS_SH(Channels)|BYTES_SH(bps));
+    return (FLOAT_SH(IsFlt)|COLORSPACE_SH(OutColorSpace)|PLANAR_SH(IsPlanar)|CHANNELS_SH(Channels)|BYTES_SH(bps));
 }
 
 
@@ -493,6 +501,9 @@ void WriteOutputTags(TIFF *out, int Colorspace, int BytesPerSample)
 
 
       // Multi-ink separations
+  case PT_MCH2:
+  case PT_MCH3:
+  case PT_MCH4:
   case PT_MCH5:
   case PT_MCH6:
   case PT_MCH7:
@@ -508,12 +519,15 @@ void WriteOutputTags(TIFF *out, int Colorspace, int BytesPerSample)
       TIFFSetField(out, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_SEPARATED);
       TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, nChannels);
 
-      if (StoreAsAlpha) {                                     
+      if (StoreAsAlpha && nChannels >= 4) {                                     
           // CMYK plus extra alpha
           TIFFSetField(out, TIFFTAG_EXTRASAMPLES, nChannels - 4, Extra);            
+          TIFFSetField(out, TIFFTAG_INKSET, 1);
+          TIFFSetField(out, TIFFTAG_NUMBEROFINKS, 4);
       }
       else {            
           TIFFSetField(out, TIFFTAG_INKSET, 2);
+          TIFFSetField(out, TIFFTAG_NUMBEROFINKS, nChannels);
       }
 
       TIFFSetField(out, TIFFTAG_BITSPERSAMPLE, BitsPerSample);
@@ -823,6 +837,8 @@ int TransformImage(TIFF* in, TIFF* out, const char *cDefInpProf)
     if (hProof) 
         cmsCloseProfile(hProof);
 
+    if (xform == NULL) return 0;
+
     // Planar stuff
     if (T_PLANAR(wInput)) 
         nPlanes = T_CHANNELS(wInput) + T_EXTRA(wInput);
@@ -852,7 +868,7 @@ int TransformImage(TIFF* in, TIFF* out, const char *cDefInpProf)
 static
 void Help(int level)
 {
-    fprintf(stderr, "little cms ICC profile applier for TIFF - v6.0 [LittleCMS %2.2f]\n\n", LCMS_VERSION / 1000.0);
+    fprintf(stderr, "little cms ICC profile applier for TIFF - v6.1 [LittleCMS %2.2f]\n\n", LCMS_VERSION / 1000.0);
     fflush(stderr);
 
     switch(level) {
@@ -961,9 +977,9 @@ void HandleSwitches(int argc, char *argv[])
 
         case 'd':
         case 'D': ObserverAdaptationState = atof(xoptarg);
-            if (ObserverAdaptationState != 0 && 
-                ObserverAdaptationState != 1.0)
-                Warning("Adaptation states other that 0 or 1 are not yet implemented");
+            if (ObserverAdaptationState < 0 || 
+                ObserverAdaptationState > 1.0)
+                Warning("Adaptation state should be 0..1");
             break;
 
         case 'e':

@@ -7,7 +7,7 @@ AC_PREREQ(2.60)
 #
 # Set the package name and version
 #
-AC_INIT(lcms2,2.0)
+AC_INIT(lcms2,2.2)
 
 #
 # Libtool library revision control info
@@ -31,7 +31,7 @@ AC_INIT(lcms2,2.0)
 #     then set age to 0.
 #
 LIBRARY_CURRENT=2
-LIBRARY_REVISION=0
+LIBRARY_REVISION=2
 LIBRARY_AGE=0
 
 AC_SUBST(LIBRARY_CURRENT)dnl
@@ -39,7 +39,7 @@ AC_SUBST(LIBRARY_REVISION)dnl
 AC_SUBST(LIBRARY_AGE)dnl
 
 # Obtain system type by running config.guess
-AC_CANONICAL_SYSTEM
+AC_CANONICAL_HOST
 
 AM_INIT_AUTOMAKE([foreign 1.7.2 no-define dist-zip])
 

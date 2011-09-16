@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2010 Marti Maria Saguer
+//  Copyright (c) 1998-2011 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining 
 // a copy of this software and associated documentation files (the "Software"), 
@@ -65,6 +65,8 @@ cmsBool  _cmsReadMediaWhitePoint(cmsCIEXYZ* Dest, cmsHPROFILE hProfile)
 {
     cmsCIEXYZ* Tag;
 
+    _cmsAssert(Dest != NULL);
+
     Tag = (cmsCIEXYZ*) cmsReadTag(hProfile, cmsSigMediaWhitePointTag);   
 
     // If no wp, take D50
@@ -93,12 +95,18 @@ cmsBool  _cmsReadCHAD(cmsMAT3* Dest, cmsHPROFILE hProfile)
 {
     cmsMAT3* Tag;
 
+    _cmsAssert(Dest != NULL);
+
     Tag = (cmsMAT3*) cmsReadTag(hProfile, cmsSigChromaticAdaptationTag);
 
-    if (Tag == NULL) {
-        _cmsMAT3identity(Dest);
+    if (Tag != NULL) {
+
+        *Dest = *Tag;
         return TRUE;
     }
+
+    // No CHAD available, default it to identity
+    _cmsMAT3identity(Dest);
 
     // V2 display profiles should give D50
     if (cmsGetEncodedICCversion(hProfile) < 0x4000000) {
@@ -117,7 +125,6 @@ cmsBool  _cmsReadCHAD(cmsMAT3* Dest, cmsHPROFILE hProfile)
         }
     }
 
-    *Dest = *Tag;
     return TRUE;
 }
 
@@ -127,6 +134,8 @@ static
 cmsBool ReadICCMatrixRGB2XYZ(cmsMAT3* r, cmsHPROFILE hProfile)
 {
     cmsCIEXYZ *PtrRed, *PtrGreen, *PtrBlue;
+
+    _cmsAssert(r != NULL);
 
     PtrRed   = (cmsCIEXYZ *) cmsReadTag(hProfile, cmsSigRedColorantTag);
     PtrGreen = (cmsCIEXYZ *) cmsReadTag(hProfile, cmsSigGreenColorantTag);
@@ -237,6 +246,25 @@ cmsPipeline* _cmsReadInputLUT(cmsHPROFILE hProfile, int Intent)
     cmsTagSignature tagFloat = Device2PCSFloat[Intent];
     cmsContext ContextID = cmsGetProfileContextID(hProfile);
 
+    // On named color, take the appropiate tag
+    if (cmsGetDeviceClass(hProfile) == cmsSigNamedColorClass) {
+
+        cmsPipeline* Lut; 
+        cmsNAMEDCOLORLIST* nc = (cmsNAMEDCOLORLIST*) cmsReadTag(hProfile, cmsSigNamedColor2Tag);
+
+        if (nc == NULL) return NULL;
+
+        Lut = cmsPipelineAlloc(ContextID, 0, 0);
+        if (Lut == NULL) {
+            cmsFreeNamedColorList(nc);
+            return NULL;
+        }
+
+        cmsPipelineInsertStage(Lut, cmsAT_BEGIN, _cmsStageAllocNamedColor(nc, TRUE));
+        cmsPipelineInsertStage(Lut, cmsAT_END, _cmsStageAllocLabV2ToV4(ContextID));
+        return Lut;
+    }
+
     if (cmsIsTag(hProfile, tagFloat)) {  // Float tag takes precedence
 
         // Floating point LUT are always V4, so no adjustment is required
@@ -265,6 +293,10 @@ cmsPipeline* _cmsReadInputLUT(cmsHPROFILE hProfile, int Intent)
         // We need to adjust data only for Lab16 on output
         if (OriginalType != cmsSigLut16Type || cmsGetPCS(hProfile) != cmsSigLabData) 
             return Lut;
+
+        // If the input is Lab, add also a conversion at the begin
+        if (cmsGetColorSpace(hProfile) == cmsSigLabData)
+            cmsPipelineInsertStage(Lut, cmsAT_BEGIN, _cmsStageAllocLabV4ToV2(ContextID));
 
         // Add a matrix for conversion V2 to V4 Lab PCS
         cmsPipelineInsertStage(Lut, cmsAT_END, _cmsStageAllocLabV2ToV4(ContextID));
@@ -377,6 +409,27 @@ cmsPipeline* BuildRGBOutputMatrixShaper(cmsHPROFILE hProfile)
     return Lut;
 }
 
+
+// Change CLUT interpolation to trilinear
+static
+void ChangeInterpolationToTrilinear(cmsPipeline* Lut)
+{
+    cmsStage* Stage;
+
+    for (Stage = cmsPipelineGetPtrToFirstStage(Lut);
+        Stage != NULL;
+        Stage = cmsStageNext(Stage)) {
+
+            if (cmsStageType(Stage) == cmsSigCLutElemType) {
+
+                _cmsStageCLutData* CLUT = (_cmsStageCLutData*) Stage ->Data;
+
+                CLUT ->Params->dwFlags |= CMS_LERP_FLAGS_TRILINEAR;
+                _cmsSetInterpolationRoutine(CLUT ->Params);
+            }
+    }
+}
+
 // Create an output MPE LUT from agiven profile. Version mismatches are handled here
 cmsPipeline* _cmsReadOutputLUT(cmsHPROFILE hProfile, int Intent)
 {
@@ -409,6 +462,12 @@ cmsPipeline* _cmsReadOutputLUT(cmsHPROFILE hProfile, int Intent)
 
         // The profile owns the Lut, so we need to copy it
         Lut = cmsPipelineDup(Lut);
+        if (Lut == NULL) return NULL;
+
+        // Now it is time for a controversial stuff. I found that for 3D LUTS using 
+        // Lab used as indexer space,  trilinear interpolation should be used         
+        if (cmsGetPCS(hProfile) == cmsSigLabData)
+                             ChangeInterpolationToTrilinear(Lut);       
 
         // We need to adjust data only for Lab and Lut16 type
         if (OriginalType != cmsSigLut16Type || cmsGetPCS(hProfile) != cmsSigLabData) 
@@ -416,6 +475,11 @@ cmsPipeline* _cmsReadOutputLUT(cmsHPROFILE hProfile, int Intent)
 
         // Add a matrix for conversion V4 to V2 Lab PCS
         cmsPipelineInsertStage(Lut, cmsAT_BEGIN, _cmsStageAllocLabV4ToV2(ContextID));
+
+        // If the output is Lab, add also a conversion at the end
+        if (cmsGetColorSpace(hProfile) == cmsSigLabData)
+            cmsPipelineInsertStage(Lut, cmsAT_END, _cmsStageAllocLabV2ToV4(ContextID));
+
         return Lut;
     }   
 
@@ -445,6 +509,26 @@ cmsPipeline* _cmsReadDevicelinkLUT(cmsHPROFILE hProfile, int Intent)
     cmsTagSignature tagFloat = Device2PCSFloat[Intent];
     cmsContext ContextID = cmsGetProfileContextID(hProfile);
 
+
+    // On named color, take the appropiate tag
+    if (cmsGetDeviceClass(hProfile) == cmsSigNamedColorClass) {
+ 
+        cmsNAMEDCOLORLIST* nc = (cmsNAMEDCOLORLIST*) cmsReadTag(hProfile, cmsSigNamedColor2Tag);
+
+        if (nc == NULL) return NULL;
+
+        Lut = cmsPipelineAlloc(ContextID, 0, 0);
+        if (Lut == NULL) {
+            cmsFreeNamedColorList(nc);
+            return NULL;
+        }
+
+        cmsPipelineInsertStage(Lut, cmsAT_BEGIN, _cmsStageAllocNamedColor(nc, FALSE));
+        if (cmsGetColorSpace(hProfile) == cmsSigLabData)
+              cmsPipelineInsertStage(Lut, cmsAT_END, _cmsStageAllocLabV2ToV4(ContextID));
+        return Lut;
+    }
+
     if (cmsIsTag(hProfile, tagFloat)) {  // Float tag takes precedence
 
         // Floating point LUT are always V4, no adjustment is required
@@ -471,6 +555,12 @@ cmsPipeline* _cmsReadDevicelinkLUT(cmsHPROFILE hProfile, int Intent)
 
     // The profile owns the Lut, so we need to copy it
     Lut = cmsPipelineDup(Lut);
+    if (Lut == NULL) return NULL;
+
+     // Now it is time for a controversial stuff. I found that for 3D LUTS using 
+     // Lab used as indexer space,  trilinear interpolation should be used         
+    if (cmsGetColorSpace(hProfile) == cmsSigLabData)
+                        ChangeInterpolationToTrilinear(Lut);    
 
     // After reading it, we have info about the original type
     OriginalType =  _cmsGetTagTrueType(hProfile, tag16);
@@ -520,7 +610,7 @@ cmsBool  CMSEXPORT cmsIsMatrixShaper(cmsHPROFILE hProfile)
 }
 
 // Returns TRUE if the intent is implemented as CLUT
-cmsBool  CMSEXPORT cmsIsCLUT(cmsHPROFILE hProfile, cmsUInt32Number Intent, int UsedDirection)
+cmsBool  CMSEXPORT cmsIsCLUT(cmsHPROFILE hProfile, cmsUInt32Number Intent, cmsUInt32Number UsedDirection)
 {    
     const cmsTagSignature* TagTable;
 
@@ -551,7 +641,7 @@ cmsBool  CMSEXPORT cmsIsCLUT(cmsHPROFILE hProfile, cmsUInt32Number Intent, int U
 
 // Return info about supported intents
 cmsBool  CMSEXPORT cmsIsIntentSupported(cmsHPROFILE hProfile,
-                                        cmsUInt32Number Intent, int UsedDirection)
+                                        cmsUInt32Number Intent, cmsUInt32Number UsedDirection)
 {
 
     if (cmsIsCLUT(hProfile, Intent, UsedDirection)) return TRUE;
@@ -569,7 +659,6 @@ cmsBool  CMSEXPORT cmsIsIntentSupported(cmsHPROFILE hProfile,
 
 // Read both, profile sequence description and profile sequence id if present. Then combine both to
 // create qa unique structure holding both. Shame on ICC to store things in such complicated way.
-
 cmsSEQ* _cmsReadProfileSequence(cmsHPROFILE hProfile)
 {
     cmsSEQ* ProfileSeq;
@@ -579,7 +668,7 @@ cmsSEQ* _cmsReadProfileSequence(cmsHPROFILE hProfile)
 
     // Take profile sequence description first
     ProfileSeq = (cmsSEQ*) cmsReadTag(hProfile, cmsSigProfileSequenceDescTag);
-    
+
     // Take profile sequence ID
     ProfileId  = (cmsSEQ*) cmsReadTag(hProfile, cmsSigProfileSequenceIdTag);
 
@@ -592,14 +681,15 @@ cmsSEQ* _cmsReadProfileSequence(cmsHPROFILE hProfile)
     if (ProfileSeq ->n != ProfileId ->n) return cmsDupProfileSequenceDescription(ProfileSeq);
 
     NewSeq = cmsDupProfileSequenceDescription(ProfileSeq);
-    
-    // Ok, proceed to the mixing
-    for (i=0; i < ProfileSeq ->n; i++) {
-    
-        memmove(&NewSeq ->seq[i].ProfileID, &ProfileId ->seq[i].ProfileID, sizeof(cmsProfileID));
-        NewSeq ->seq[i].Description = cmsMLUdup(ProfileId ->seq[i].Description);
-    }
 
+    // Ok, proceed to the mixing
+    if (NewSeq != NULL) {
+        for (i=0; i < ProfileSeq ->n; i++) {
+
+            memmove(&NewSeq ->seq[i].ProfileID, &ProfileId ->seq[i].ProfileID, sizeof(cmsProfileID));
+            NewSeq ->seq[i].Description = cmsMLUdup(ProfileId ->seq[i].Description);
+        }
+    }
     return NewSeq;
 }
 

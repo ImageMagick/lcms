@@ -799,7 +799,7 @@ int GetInterval(cmsFloat64Number In, const cmsUInt16Number LutTable[], const str
 cmsToneCurve* CMSEXPORT cmsReverseToneCurveEx(cmsInt32Number nResultSamples, const cmsToneCurve* InCurve)
 {
     cmsToneCurve *out;
-    cmsFloat64Number a = 1, b = 0, y, x1, y1, x2, y2;
+    cmsFloat64Number a = 0, b = 0, y, x1, y1, x2, y2;
     int i, j;
     int Ascending;
     
@@ -830,6 +830,7 @@ cmsToneCurve* CMSEXPORT cmsReverseToneCurveEx(cmsInt32Number nResultSamples, con
         j = GetInterval(y, InCurve->Table16, InCurve->InterpParams);
         if (j >= 0) {
 
+
             // Get limits of interval
             x1 = InCurve ->Table16[j]; 
             x2 = InCurve ->Table16[j+1];
@@ -854,6 +855,7 @@ cmsToneCurve* CMSEXPORT cmsReverseToneCurveEx(cmsInt32Number nResultSamples, con
         out ->Table16[i] = _cmsQuickSaturateWord(a* y + b);
     }
 
+
     return out;
 }
 
@@ -862,7 +864,7 @@ cmsToneCurve* CMSEXPORT cmsReverseToneCurve(const cmsToneCurve* InGamma)
 {
     _cmsAssert(InGamma != NULL);
 
-    return cmsReverseToneCurveEx(InGamma -> nEntries, InGamma);
+    return cmsReverseToneCurveEx(4096, InGamma);
 }
 
 // From: Eilers, P.H.C. (1994) Smoothing and interpolation with finite
@@ -1006,20 +1008,42 @@ cmsBool  CMSEXPORT cmsIsToneCurveMonotonic(const cmsToneCurve* t)
 {
     int n;
     int i, last;
+    cmsBool lDescending;
 
     _cmsAssert(t != NULL);
+   
+    // Degenerated curves are monotonic? Ok, let's pass them
+    n = t ->nEntries;
+    if (n < 2) return TRUE;
 
-    n    = t ->nEntries;
-    last = t ->Table16[n-1];
+    // Curve direction
+    lDescending = cmsIsToneCurveDescending(t);     
+   
+    if (lDescending) {
 
-    for (i = n-2; i >= 0; --i) {
+        last = t ->Table16[0];
 
-        if (t ->Table16[i] > last)
+        for (i = 1; i < n; i++) {
 
-            return FALSE;
-        else
-            last = t ->Table16[i];
+            if (t ->Table16[i] - last > 2) // We allow some ripple
+                return FALSE;
+            else
+                last = t ->Table16[i];
 
+        }
+    }
+    else {
+
+        last = t ->Table16[n-1];
+
+        for (i = n-2; i >= 0; --i) {
+          
+            if (t ->Table16[i] - last > 2)
+                return FALSE;
+            else
+                last = t ->Table16[i];
+
+        }
     }
 
     return TRUE;

@@ -183,7 +183,6 @@ cmsToneCurve* _cmsBuildKToneCurve(cmsContext        ContextID,
 
     // Make sure it is monotonic    
     if (!cmsIsToneCurveMonotonic(KTone)) {
-
         cmsFreeToneCurve(KTone);
         return NULL;
     }
@@ -217,7 +216,7 @@ int GamutSampler(register const cmsUInt16Number In[], register cmsUInt16Number O
     GAMUTCHAIN*  t = (GAMUTCHAIN* ) Cargo;          
     cmsCIELab LabIn1, LabOut1;  
     cmsCIELab LabIn2, LabOut2;      
-    cmsFloat32Number Proof[MAXCHANNELS], Proof2[MAXCHANNELS];
+    cmsUInt16Number Proof[cmsMAXCHANNELS], Proof2[cmsMAXCHANNELS];
     cmsFloat64Number dE1, dE2, ErrorRatio;
 
     // Assume in-gamut by default.
@@ -367,8 +366,8 @@ cmsPipeline* _cmsCreateGamutCheckPipeline(cmsContext ContextID,
 		cmsFLAGS_NOCACHE);
 
 
-	// Does create the forward step. Lab double to cmsFloat32Number
-	dwFormat    = (CHANNELS_SH(nChannels)|BYTES_SH(4));
+	// Does create the forward step. Lab double to device
+	dwFormat    = (CHANNELS_SH(nChannels)|BYTES_SH(2));
 	Chain.hForward = cmsCreateTransformTHR(ContextID,
 		hLab, TYPE_Lab_DBL, 
 		hGamut, dwFormat, 
@@ -417,7 +416,7 @@ typedef struct {
     cmsUInt32Number  nOutputChans;
     cmsHTRANSFORM    hRoundTrip;               
     cmsFloat32Number MaxTAC;
-    cmsFloat32Number MaxInput[MAXCHANNELS];
+    cmsFloat32Number MaxInput[cmsMAXCHANNELS];
 
 } cmsTACestimator;
 
@@ -428,7 +427,7 @@ static
 int EstimateTAC(register const cmsUInt16Number In[], register cmsUInt16Number Out[], register void * Cargo)
 {
     cmsTACestimator* bp = (cmsTACestimator*) Cargo;
-    cmsFloat32Number RoundTrip[MAXCHANNELS];
+    cmsFloat32Number RoundTrip[cmsMAXCHANNELS];
     cmsUInt32Number i;
     cmsFloat32Number Sum;
 
@@ -471,13 +470,13 @@ cmsFloat64Number CMSEXPORT cmsDetectTAC(cmsHPROFILE hProfile)
     }
 
     // Create a fake formatter for result
-    dwFormatter = cmsFormatterForColorspaceOfProfile(hProfile, 4);
+    dwFormatter = cmsFormatterForColorspaceOfProfile(hProfile, 4, TRUE);
 
     bp.nOutputChans = T_CHANNELS(dwFormatter);
     bp.MaxTAC = 0;    // Initial TAC is 0
 
     //  for safety
-    if (bp.nOutputChans >= MAXCHANNELS) return 0;
+    if (bp.nOutputChans >= cmsMAXCHANNELS) return 0;
 
     hLab = cmsCreateLab4ProfileTHR(ContextID, NULL);
     if (hLab == NULL) return 0;
