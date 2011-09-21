@@ -29,7 +29,7 @@
 #ifndef _lcms2_H
 
 //
-// This part added for GraphicsMagick DLLs
+// This part added for ImageMagick DLLs
 //
 #ifdef _VISUALC_
 #  if defined(_DLL) && !defined(_LIB)
