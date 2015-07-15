@@ -52,9 +52,13 @@ static cmsInt32Number SimultaneousErrors;
 #define cmsmin(a, b) (((a) < (b)) ? (a) : (b))
 
 // Die, a fatal unexpected error is detected!
-void Die(const char* Reason)
+void Die(const char* Reason, ...)
 {
-    printf("\n\nArrrgggg!!: %s!\n\n", Reason);
+    va_list args;
+    va_start(args, Reason);
+    vsprintf(ReasonToFailBuffer, Reason, args);
+    va_end(args);
+    printf("\n%s\n", ReasonToFailBuffer);
     fflush(stdout);
     exit(1);
 }
@@ -693,6 +697,10 @@ cmsInt32Number CreateTestProfiles(void)
     h = CreateFakeCMYK(300, FALSE);
     if (!OneVirtual(h, "Fake CMYK profile", "lcms2cmyk.icc")) return 0;
 
+    // ---
+
+    h = cmsCreateBCHSWabstractProfileTHR(DbgThread(), 17, 0, 1.2, 0, 3, 5000, 5000);
+    if (!OneVirtual(h, "Brightness", "brightness.icc")) return 0;
     return 1;
 }
 
@@ -714,6 +722,7 @@ void RemoveTestProfiles(void)
     remove("glablcms2.icc");
     remove("lcms2link.icc");
     remove("lcms2link2.icc");
+    remove("brightness.icc");
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -768,7 +777,7 @@ cmsInt32Number CheckEndianess(void)
 #endif
 
     if (!IsOk) {
-        Fail("\nOOOPPSS! You have CMS_USE_BIG_ENDIAN toggle misconfigured!\n\n"
+        Die("\nOOOPPSS! You have CMS_USE_BIG_ENDIAN toggle misconfigured!\n\n"
             "Please, edit lcms2.h and %s the CMS_USE_BIG_ENDIAN toggle.\n", BigEndian? "uncomment" : "comment");
         return 0;
     }
@@ -785,7 +794,7 @@ cmsInt32Number CheckQuickFloor(void)
         (_cmsQuickFloor(-1.234) != -2) ||
         (_cmsQuickFloor(-32767.1) != -32768)) {
 
-            Fail("\nOOOPPSS! _cmsQuickFloor() does not work as expected in your machine!\n\n"
+            Die("\nOOOPPSS! _cmsQuickFloor() does not work as expected in your machine!\n\n"
                 "Please, edit lcms2.h and uncomment the CMS_DONT_USE_FAST_FLOOR toggle.\n");
             return 0;
 
@@ -804,7 +813,7 @@ cmsInt32Number CheckQuickFloorWord(void)
 
         if (_cmsQuickFloorWord((cmsFloat64Number) i + 0.1234) != i) {
 
-            Fail("\nOOOPPSS! _cmsQuickFloorWord() does not work as expected in your machine!\n\n"
+            Die("\nOOOPPSS! _cmsQuickFloorWord() does not work as expected in your machine!\n\n"
                 "Please, edit lcms2.h and uncomment the CMS_DONT_USE_FAST_FLOOR toggle.\n");
             return 0;
         }
@@ -1531,7 +1540,7 @@ cmsInt32Number CheckReverseInterpolation3x3(void)
 {
  cmsPipeline* Lut;
  cmsStage* clut;
- cmsFloat32Number Target[3], Result[3], Hint[3];
+ cmsFloat32Number Target[4], Result[4], Hint[4];
  cmsFloat32Number err, max;
  cmsInt32Number i;
  cmsUInt16Number Table[] = {
@@ -6171,17 +6180,17 @@ cmsInt32Number Chack_sRGB_Float(void)
     MaxErr = 0;
 
     // Xform 1 goes from 8 bits to XYZ,
-    rc  = CheckOneRGB_f(xform1, 1, 1, 1,        0.0002926, 0.00030352, 0.00025037, 0.0001);
-    rc  &= CheckOneRGB_f(xform1, 127, 127, 127, 0.2046329, 0.212230,   0.175069,   0.0001);
-    rc  &= CheckOneRGB_f(xform1, 12, 13, 15,    0.0038364, 0.0039928,  0.00385212, 0.0001);
-    rc  &= CheckOneRGB_f(xform1, 128, 0, 0,     0.0940846, 0.0480030,  0.00300543, 0.0001);
-    rc  &= CheckOneRGB_f(xform1, 190, 25, 210,  0.3203491, 0.1605240,  0.46817115, 0.0001);
+    rc  = CheckOneRGB_f(xform1, 1, 1, 1,        0.0002927, 0.0003035,  0.000250,  0.0001);
+    rc  &= CheckOneRGB_f(xform1, 127, 127, 127, 0.2046329, 0.212230,   0.175069,  0.0001);
+    rc  &= CheckOneRGB_f(xform1, 12, 13, 15,    0.0038364, 0.0039928,  0.003853,  0.0001);
+    rc  &= CheckOneRGB_f(xform1, 128, 0, 0,     0.0941240, 0.0480256,  0.003005,  0.0001);
+    rc  &= CheckOneRGB_f(xform1, 190, 25, 210,  0.3204592, 0.1605926,  0.468213,  0.0001);
 
     // Xform 2 goes from 8 bits to Lab, we allow 0.01 error max
-    rc  &= CheckOneRGB_f(xform2, 1, 1, 1,       0.2741748, 0, 0,                  0.01);
-    rc  &= CheckOneRGB_f(xform2, 127, 127, 127, 53.192776, 0, 0,                  0.01);
-    rc  &= CheckOneRGB_f(xform2, 190, 25, 210,  47.043171, 74.564576, -56.89373,  0.01);
-    rc  &= CheckOneRGB_f(xform2, 128, 0, 0,     26.158100, 48.474477, 39.425916,  0.01);
+    rc  &= CheckOneRGB_f(xform2, 1, 1, 1,       0.2741748, 0, 0,                   0.01);
+    rc  &= CheckOneRGB_f(xform2, 127, 127, 127, 53.192776, 0, 0,                   0.01);
+    rc  &= CheckOneRGB_f(xform2, 190, 25, 210,  47.052136, 74.565610, -56.883274,  0.01);
+    rc  &= CheckOneRGB_f(xform2, 128, 0, 0,     26.164701, 48.478171, 39.4384713,  0.01);
 
     cmsDeleteTransform(xform1);
     cmsDeleteTransform(xform2);
@@ -6549,7 +6558,7 @@ cmsInt32Number CheckGamutCheck(void)
         cmsHPROFILE hSRGB, hAbove;
         cmsHTRANSFORM xform;
         cmsInt32Number rc;
-        cmsUInt16Number Alarm[3] = { 0xDEAD, 0xBABE, 0xFACE };
+        cmsUInt16Number Alarm[16] = { 0xDEAD, 0xBABE, 0xFACE };
 
         // Set alarm codes to fancy values so we could check the out of gamut condition
         cmsSetAlarmCodes(Alarm);
@@ -7721,6 +7730,33 @@ cmsInt32Number CheckRemoveTag(void)
     return 1;
 }
 
+
+static
+cmsInt32Number CheckMatrixSimplify(void)
+{
+     
+       cmsHPROFILE pIn;
+       cmsHPROFILE pOut;
+       cmsHTRANSFORM t;
+       unsigned char buf[3] = { 127, 32, 64 };
+
+       
+       pIn = cmsCreate_sRGBProfile();
+       pOut = cmsOpenProfileFromFile("ibm-t61.icc", "r");
+       if (pIn == NULL || pOut == NULL)
+              return 0;
+
+       t = cmsCreateTransform(pIn, TYPE_RGB_8, pOut, TYPE_RGB_8, INTENT_PERCEPTUAL, 0);
+       cmsDoTransformStride(t, buf, buf, 1, 1);
+       cmsDeleteTransform(t);
+       cmsCloseProfile(pIn);
+       cmsCloseProfile(pOut);
+      
+
+       return buf[0] == 144 && buf[1] == 0 && buf[2] == 69;
+}
+
+
 // --------------------------------------------------------------------------------------------------
 // P E R F O R M A N C E   C H E C K S
 // --------------------------------------------------------------------------------------------------
@@ -8123,14 +8159,12 @@ void PrintSupportedIntents(void)
 
 // ---------------------------------------------------------------------------------------
 
-
 #ifdef LCMS_FAST_EXTENSIONS
     void* cmsFast8Bitextensions(void);
 #endif
 
 int main(int argc, char* argv[])
 {
-
     cmsInt32Number Exhaustive = 0;
     cmsInt32Number DoSpeedTests = 1;
     cmsInt32Number DoCheckTests = 1;
@@ -8140,6 +8174,11 @@ int main(int argc, char* argv[])
 #ifdef _MSC_VER
     _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
+
+    // First of all, check for the right header
+   if (cmsGetEncodedCMMversion() != LCMS_VERSION) {
+          Die("Oops, you are mixing header and shared lib!\nHeader version reports to be '%d' and shared lib '%d'\n", LCMS_VERSION, cmsGetEncodedCMMversion());
+   }
 
     printf("LittleCMS %2.2f test bed %s %s\n\n", LCMS_VERSION / 1000.0, __DATE__, __TIME__);
 
@@ -8154,6 +8193,7 @@ int main(int argc, char* argv[])
    cmsPlugin(cmsFast8Bitextensions());
    printf("done.\n");
 #endif
+
 
     printf("Installing debug memory plug-in ... ");
     cmsPlugin(&DebugMemHandler);
@@ -8355,11 +8395,12 @@ int main(int argc, char* argv[])
     Check("Check MetaTag", CheckMeta);
     Check("Null transform on floats", CheckFloatNULLxform);
     Check("Set free a tag", CheckRemoveTag);
+    Check("Matrix simplification", CheckMatrixSimplify);
     }
 
     if (DoPluginTests)
     {
-#ifndef CMS_CONTEXT_IN_LEGACY_MODE
+
         Check("Context memory handling", CheckAllocContext);
         Check("Simple context functionality", CheckSimpleContext);
         Check("Alarm codes context", CheckAlarmColorsContext);
@@ -8374,7 +8415,7 @@ int main(int argc, char* argv[])
         Check("Rendering intent plugin", CheckIntentPlugin);
         Check("Full transform plugin",   CheckTransformPlugin);
         Check("Mutex plugin",            CheckMutexPlugin);
-#endif        
+       
     }
 
 
