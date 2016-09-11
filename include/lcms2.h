@@ -25,6 +25,18 @@
 //
 // Version 2.8
 //
+// This part added for ImageMagick DLLs
+//
+#ifdef _VISUALC_
+#  if defined(_DLL) && !defined(_LIB)
+     // Using DLLs
+#    define CMS_DLL 1
+#    if defined(_LCMSLIB_)
+       // Building DLL
+#      define CMS_DLL_BUILD 1
+#    endif // defined(_LCMSLIB_)
+#  endif // defined(_DLL) && !defined(_LIB)
+#endif // _VISUALC_
 
 #ifndef _lcms2_H
 
