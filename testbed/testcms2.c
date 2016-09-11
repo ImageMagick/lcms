@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2014 Marti Maria Saguer
+//  Copyright (c) 1998-2016 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -101,7 +101,7 @@ cmsContext DbgThread(void)
 {
     static cmsUInt32Number n = 1;
 
-    return (cmsContext) (n++ % 0xff0);
+    return (cmsContext) (void*)(n++ % 0xff0);
 }
 
 // The allocate routine
@@ -4278,6 +4278,36 @@ cmsInt32Number CheckGamma(cmsInt32Number Pass, cmsHPROFILE hProfile, cmsTagSigna
 }
 
 static
+cmsInt32Number CheckTextSingle(cmsInt32Number Pass, cmsHPROFILE hProfile, cmsTagSignature tag)
+{
+    cmsMLU *m, *Pt;
+    cmsInt32Number rc;
+    char Buffer[256];
+
+
+    switch (Pass) {
+
+    case 1:
+        m = cmsMLUalloc(DbgThread(), 0);
+        cmsMLUsetASCII(m, cmsNoLanguage, cmsNoCountry, "Test test");    
+        rc = cmsWriteTag(hProfile, tag, m);
+        cmsMLUfree(m);
+        return rc;
+
+    case 2:
+        Pt = cmsReadTag(hProfile, tag);
+        if (Pt == NULL) return 0;
+        cmsMLUgetASCII(Pt, cmsNoLanguage, cmsNoCountry, Buffer, 256);
+        if (strcmp(Buffer, "Test test") != 0) return FALSE;
+        return TRUE;
+
+    default:
+        return 0;
+    }
+}
+
+
+static
 cmsInt32Number CheckText(cmsInt32Number Pass, cmsHPROFILE hProfile, cmsTagSignature tag)
 {
     cmsMLU *m, *Pt;
@@ -4290,6 +4320,10 @@ cmsInt32Number CheckText(cmsInt32Number Pass, cmsHPROFILE hProfile, cmsTagSignat
         case 1:
             m = cmsMLUalloc(DbgThread(), 0);
             cmsMLUsetASCII(m, cmsNoLanguage, cmsNoCountry, "Test test");
+            cmsMLUsetASCII(m, "en",  "US",  "1 1 1 1");
+            cmsMLUsetASCII(m, "es",  "ES",  "2 2 2 2");
+            cmsMLUsetASCII(m, "ct",  "ES",  "3 3 3 3");
+            cmsMLUsetASCII(m, "en",  "GB",  "444444444");
             rc = cmsWriteTag(hProfile, tag, m);
             cmsMLUfree(m);
             return rc;
@@ -4298,7 +4332,16 @@ cmsInt32Number CheckText(cmsInt32Number Pass, cmsHPROFILE hProfile, cmsTagSignat
             Pt = cmsReadTag(hProfile, tag);
             if (Pt == NULL) return 0;
             cmsMLUgetASCII(Pt, cmsNoLanguage, cmsNoCountry, Buffer, 256);
-            return strcmp(Buffer, "Test test") == 0;
+            if (strcmp(Buffer, "Test test") != 0) return FALSE;
+            cmsMLUgetASCII(Pt, "en", "US", Buffer, 256);
+            if (strcmp(Buffer, "1 1 1 1") != 0) return FALSE;
+            cmsMLUgetASCII(Pt, "es", "ES", Buffer, 256);
+            if (strcmp(Buffer, "2 2 2 2") != 0) return FALSE;
+            cmsMLUgetASCII(Pt, "ct", "ES", Buffer, 256);
+            if (strcmp(Buffer, "3 3 3 3") != 0) return FALSE;
+            cmsMLUgetASCII(Pt, "en", "GB",  Buffer, 256);
+            if (strcmp(Buffer, "444444444") != 0) return FALSE;
+            return TRUE;
 
         default:
             return 0;
@@ -5232,13 +5275,16 @@ cmsInt32Number CheckProfileCreation(void)
 
         SubTest("Tags holding text");
 
-        if (!CheckText(Pass, h, cmsSigCharTargetTag)) return 0;
+        if (!CheckTextSingle(Pass, h, cmsSigCharTargetTag)) return 0;
+        if (!CheckTextSingle(Pass, h, cmsSigScreeningDescTag)) return 0;
+
         if (!CheckText(Pass, h, cmsSigCopyrightTag)) return 0;
         if (!CheckText(Pass, h, cmsSigProfileDescriptionTag)) return 0;
         if (!CheckText(Pass, h, cmsSigDeviceMfgDescTag)) return 0;
         if (!CheckText(Pass, h, cmsSigDeviceModelDescTag)) return 0;
         if (!CheckText(Pass, h, cmsSigViewingCondDescTag)) return 0;
-        if (!CheckText(Pass, h, cmsSigScreeningDescTag)) return 0;
+
+     
 
         SubTest("Tags holding cmsICCData");
 
@@ -5388,6 +5434,29 @@ cmsInt32Number CheckVersionHeaderWriting(void)
     }
     return 1;
 }
+
+
+// Test on Richard Hughes "crayons.icc"
+static
+cmsInt32Number CheckMultilocalizedProfile(void)
+{
+    cmsHPROFILE hProfile;
+    cmsMLU *Pt;
+    char Buffer[256];
+
+    hProfile = cmsOpenProfileFromFile("crayons.icc", "r");
+
+    Pt = cmsReadTag(hProfile, cmsSigProfileDescriptionTag);
+    cmsMLUgetASCII(Pt, "en", "GB", Buffer, 256);
+    if (strcmp(Buffer, "Crayon Colours") != 0) return FALSE;
+    cmsMLUgetASCII(Pt, "en", "US", Buffer, 256);
+    if (strcmp(Buffer, "Crayon Colors") != 0) return FALSE;
+
+    cmsCloseProfile(hProfile);
+
+    return TRUE;
+}
+
 
 // Error reporting  -------------------------------------------------------------------------------------------------------
 
@@ -7245,7 +7314,7 @@ int CheckLinking(void)
 
 //  TestMPE
 //
-//  Created by Paul Miller on 30/08/2012.
+//  Created by Paul Miller on 30/08/2016.
 //
 static 
 cmsHPROFILE IdentityMatrixProfile( cmsColorSpaceSignature dataSpace)
@@ -7757,6 +7826,135 @@ cmsInt32Number CheckMatrixSimplify(void)
 }
 
 
+
+static
+cmsInt32Number CheckTransformLineStride(void)
+{
+
+       cmsHPROFILE pIn;
+       cmsHPROFILE pOut;
+       cmsHTRANSFORM t;
+
+       // Our buffer is formed by 4 RGB8 lines, each line is 2 pixels wide plus a padding of one byte
+
+       cmsUInt8Number buf1[]= { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0,
+                                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 
+                                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 
+                                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, };
+
+       // Our buffer2 is formed by 4 RGBA lines, each line is 2 pixels wide plus a padding of one byte
+
+       cmsUInt8Number buf2[] = { 0xff, 0xff, 0xff, 1, 0xff, 0xff, 0xff, 1, 0,
+                                 0xff, 0xff, 0xff, 1, 0xff, 0xff, 0xff, 1, 0,
+                                 0xff, 0xff, 0xff, 1, 0xff, 0xff, 0xff, 1, 0,
+                                 0xff, 0xff, 0xff, 1, 0xff, 0xff, 0xff, 1, 0};
+
+       // Our buffer3 is formed by 4 RGBA16 lines, each line is 2 pixels wide plus a padding of two bytes
+
+       cmsUInt16Number buf3[] = { 0xffff, 0xffff, 0xffff, 0x0101, 0xffff, 0xffff, 0xffff, 0x0101, 0,
+                                  0xffff, 0xffff, 0xffff, 0x0101, 0xffff, 0xffff, 0xffff, 0x0101, 0,
+                                  0xffff, 0xffff, 0xffff, 0x0101, 0xffff, 0xffff, 0xffff, 0x0101, 0,
+                                  0xffff, 0xffff, 0xffff, 0x0101, 0xffff, 0xffff, 0xffff, 0x0101, 0 };
+
+       cmsUInt8Number out[1024];
+
+
+       memset(out, 0, sizeof(out));
+       pIn = cmsCreate_sRGBProfile();
+       pOut = cmsOpenProfileFromFile("ibm-t61.icc", "r");
+       if (pIn == NULL || pOut == NULL)
+              return 0;
+
+       t = cmsCreateTransform(pIn, TYPE_RGB_8, pOut, TYPE_RGB_8, INTENT_PERCEPTUAL, cmsFLAGS_COPY_ALPHA);
+       
+       cmsDoTransformLineStride(t, buf1, out, 2, 4, 7, 7, 0, 0);
+       cmsDeleteTransform(t);
+
+       if (memcmp(out, buf1, sizeof(buf1)) != 0) {
+              Fail("Failed transform line stride on RGB8");
+              cmsCloseProfile(pIn);
+              cmsCloseProfile(pOut);
+              return 0;
+       }
+
+       memset(out, 0, sizeof(out));
+
+       t = cmsCreateTransform(pIn, TYPE_RGBA_8, pOut, TYPE_RGBA_8, INTENT_PERCEPTUAL, cmsFLAGS_COPY_ALPHA);
+       
+       cmsDoTransformLineStride(t, buf2, out, 2, 4, 9, 9, 0, 0);
+
+       cmsDeleteTransform(t);
+
+
+       if (memcmp(out, buf2, sizeof(buf2)) != 0) {
+              cmsCloseProfile(pIn);
+              cmsCloseProfile(pOut);
+              Fail("Failed transform line stride on RGBA8");
+              return 0;
+       }
+
+       memset(out, 0, sizeof(out));
+
+       t = cmsCreateTransform(pIn, TYPE_RGBA_16, pOut, TYPE_RGBA_16, INTENT_PERCEPTUAL, cmsFLAGS_COPY_ALPHA);
+
+       cmsDoTransformLineStride(t, buf3, out, 2, 4, 18, 18, 0, 0);
+
+       cmsDeleteTransform(t);
+
+       if (memcmp(out, buf3, sizeof(buf3)) != 0) {
+              cmsCloseProfile(pIn);
+              cmsCloseProfile(pOut);
+              Fail("Failed transform line stride on RGBA16");
+              return 0;
+       }
+
+
+       memset(out, 0, sizeof(out));
+
+
+       // From 8 to 16
+       t = cmsCreateTransform(pIn, TYPE_RGBA_8, pOut, TYPE_RGBA_16, INTENT_PERCEPTUAL, cmsFLAGS_COPY_ALPHA);
+
+       cmsDoTransformLineStride(t, buf2, out, 2, 4, 9, 18, 0, 0);
+
+       cmsDeleteTransform(t);
+
+       if (memcmp(out, buf3, sizeof(buf3)) != 0) {
+              cmsCloseProfile(pIn);
+              cmsCloseProfile(pOut);
+              Fail("Failed transform line stride on RGBA16");
+              return 0;
+       }
+
+
+
+       cmsCloseProfile(pIn);
+       cmsCloseProfile(pOut);
+
+       return 1;
+}
+
+
+static
+int CheckPlanar8opt(void)
+{
+    cmsHPROFILE aboveRGB = Create_AboveRGB();
+    cmsHPROFILE sRGB = cmsCreate_sRGBProfile();
+
+    cmsHTRANSFORM transform = cmsCreateTransform(sRGB, TYPE_RGB_8_PLANAR,
+        aboveRGB, TYPE_RGB_8_PLANAR,
+        INTENT_PERCEPTUAL, 0);
+
+    cmsDeleteTransform(transform);
+    cmsCloseProfile(aboveRGB);
+    cmsCloseProfile(sRGB);
+
+    return 1;
+}
+
+
+
+
 // --------------------------------------------------------------------------------------------------
 // P E R F O R M A N C E   C H E C K S
 // --------------------------------------------------------------------------------------------------
@@ -8202,8 +8400,7 @@ int main(int argc, char* argv[])
     printf("Installing error logger ... ");
     cmsSetLogErrorHandler(FatalErrorQuit);
     printf("done.\n");
-
-
+    
     PrintSupportedIntents();
 
     Check("Base types", CheckBaseTypes);
@@ -8338,6 +8535,7 @@ int main(int argc, char* argv[])
     // Profile I/O (this one is huge!)
     Check("Profile creation", CheckProfileCreation);
     Check("Header version", CheckVersionHeaderWriting);
+    Check("Multilocalized profile", CheckMultilocalizedProfile);
 
     // Error reporting
     Check("Error reporting on bad profiles", CheckErrReportingOnBadProfiles);
@@ -8396,6 +8594,10 @@ int main(int argc, char* argv[])
     Check("Null transform on floats", CheckFloatNULLxform);
     Check("Set free a tag", CheckRemoveTag);
     Check("Matrix simplification", CheckMatrixSimplify);
+    Check("Planar 8 optimization", CheckPlanar8opt);
+
+    Check("Transform line stride RGB", CheckTransformLineStride);
+
     }
 
     if (DoPluginTests)
@@ -8422,8 +8624,11 @@ int main(int argc, char* argv[])
     if (DoSpeedTests)
         SpeedTest();
 
+
+#ifdef CMS_IS_WINDOWS_
     if (DoZooTests) 
          CheckProfileZOO();
+#endif
 
     DebugMemPrintTotals();
 

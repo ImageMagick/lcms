@@ -1,7 +1,7 @@
 
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2014 Marti Maria Saguer
+//  Copyright (c) 1998-2016 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -57,7 +57,15 @@
 #define _cmsALIGNLONG(x) (((x)+(sizeof(cmsUInt32Number)-1)) & ~(sizeof(cmsUInt32Number)-1))
 
 // Alignment to memory pointer
-#define _cmsALIGNMEM(x)  (((x)+(sizeof(void *) - 1)) & ~(sizeof(void *) - 1))
+
+// (Ultra)SPARC with gcc requires ptr alignment of 8 bytes
+// even though sizeof(void *) is only four: for greatest flexibility
+// allow the build to specify ptr alignment.
+#ifndef CMS_PTR_ALIGNMENT
+# define CMS_PTR_ALIGNMENT sizeof(void *)
+#endif
+
+#define _cmsALIGNMEM(x)  (((x)+(CMS_PTR_ALIGNMENT - 1)) & ~(CMS_PTR_ALIGNMENT - 1))
 
 // Maximum encodeable values in floating point
 #define MAX_ENCODEABLE_XYZ  (1.0 + 32767.0/32768.0)
@@ -93,7 +101,7 @@
 
 // A fast way to convert from/to 16 <-> 8 bits
 #define FROM_8_TO_16(rgb) (cmsUInt16Number) ((((cmsUInt16Number) (rgb)) << 8)|(rgb))
-#define FROM_16_TO_8(rgb) (cmsUInt8Number) ((((rgb) * 65281 + 8388608) >> 24) & 0xFF)
+#define FROM_16_TO_8(rgb) (cmsUInt8Number) ((((cmsUInt32Number)(rgb) * 65281U + 8388608U) >> 24) & 0xFFU)
 
 // Code analysis is broken on asserts
 #ifdef _MSC_VER
@@ -662,8 +670,8 @@ struct _cms_MLU_struct {
     cmsContext ContextID;
 
     // The directory
-    int AllocatedEntries;
-    int UsedEntries;
+    cmsUInt32Number  AllocatedEntries;
+    cmsUInt32Number  UsedEntries;
     _cmsMLUentry* Entries;     // Array of pointers to strings allocated in MemPool
 
     // The Pool
@@ -731,7 +739,7 @@ typedef struct _cms_iccprofile_struct {
     // Dictionary
     cmsUInt32Number          TagCount;
     cmsTagSignature          TagNames[MAX_TABLE_TAG];
-    cmsTagSignature          TagLinked[MAX_TABLE_TAG];           // The tag to wich is linked (0=none)
+    cmsTagSignature          TagLinked[MAX_TABLE_TAG];           // The tag to which is linked (0=none)
     cmsUInt32Number          TagSizes[MAX_TABLE_TAG];            // Size on disk
     cmsUInt32Number          TagOffsets[MAX_TABLE_TAG];
     cmsBool                  TagSaveAsRaw[MAX_TABLE_TAG];        // True to write uncooked
@@ -959,7 +967,7 @@ typedef struct _cmstransform_struct {
     cmsUInt32Number InputFormat, OutputFormat; // Keep formats for further reference
 
     // Points to transform code
-    _cmsTransformFn xform;
+    _cmsTransform2Fn xform;
 
     // Formatters, cannot be embedded into LUT because cache
     cmsFormatter16 FromInput;
@@ -1005,9 +1013,20 @@ typedef struct _cmstransform_struct {
     void* UserData;
     _cmsFreeUserDataFn FreeUserData;
 
+    // A way to provide backwards compatibility with full xform plugins
+    _cmsTransformFn OldXform;
+
 } _cmsTRANSFORM;
 
-// --------------------------------------------------------------------------------------------------
+// Copies extra channels from input to output if the original flags in the transform structure
+// instructs to do so. This function is called on all standard transform functions.
+void _cmsHandleExtraChannels(_cmsTRANSFORM* p, const void* in,
+                             void* out, 
+                             cmsUInt32Number PixelsPerLine,
+                             cmsUInt32Number LineCount,
+                             const cmsStride* Stride);
+
+// -----------------------------------------------------------------------------------------------------------------------
 
 cmsHTRANSFORM _cmsChain2Lab(cmsContext             ContextID,
                             cmsUInt32Number        nProfiles,

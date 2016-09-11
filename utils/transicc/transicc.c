@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2011 Marti Maria Saguer
+//  Copyright (c) 1998-2016 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining 
 // a copy of this software and associated documentation files (the "Software"), 
@@ -529,7 +529,7 @@ cmsBool OpenTransforms(void)
 
     // For named color, there is a specialized formatter
     if (cmsGetDeviceClass(hInput) == cmsSigNamedColorClass) {
-        dwOut = dwIn;
+        
         dwIn = TYPE_NAMED_COLOR_INDEX;
         InputNamedColor = TRUE;
     }
@@ -719,7 +719,7 @@ void TakeFloatValues(cmsFloat64Number Float[])
 {
     cmsUInt32Number i, n;
     char ChannelName[cmsMAX_PATH];
-    char Buffer[cmsMAX_PATH];
+    char Buffer[4096];
 
     if (xisatty(stdin))
         fprintf(stderr, "\nEnter values, 'q' to quit\n");

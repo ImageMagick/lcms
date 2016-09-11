@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2010 Marti Maria Saguer
+//  Copyright (c) 1998-2016 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -146,7 +146,7 @@ void PrintBuiltins(void)
 }
 
 
-// Auxiliar for printing information on profile
+// Auxiliary for printing information on profile
 static
 void PrintInfo(cmsHPROFILE h, cmsInfoType Info)
 {
@@ -203,6 +203,11 @@ void PrintColorantTable(cmsHPROFILE hInput, cmsTagSignature Sig, const char* Tit
 
 void PrintProfileInformation(cmsHPROFILE hInput)
 {
+    if (hInput == NULL) {
+			fprintf(stderr, "*Wrong or corrupted profile*\n");
+            return;
+    }
+
     PrintInfo(hInput, cmsInfoDescription);
     PrintInfo(hInput, cmsInfoManufacturer);
     PrintInfo(hInput, cmsInfoModel);
