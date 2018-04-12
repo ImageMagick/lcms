@@ -1,17 +1,27 @@
 
 -----------------------
+2.9 Maintenance release
+-----------------------
+Several fixes related with security, and therefore not detailed here.
+C++ compiles now without warnings
+Added OSX and clang in travis
+Added a travis-ci test matrix for many compilers and OS. Thanks to Thomas Weber (debian) for this great improvement.
+testbed can now work with dynamic versions of library 
+Fixed wrong planar formatters regarding linestride interpretation
+
+-----------------------
 2.8 Featured release
 -----------------------
 
 Changed ChangeLog direction
 Fixed many typos in comments, thanks to Stefan Weil for doing that.
-Fixed localization bug, added a new test case crayons.icc thnaks to Richard Hughes for providing the profile. 
+Fixed localization bug, added a new test case crayons.icc thanks to Richard Hughes for providing the profile. 
 Fixed a bug in optimizer that made some formats (i.e, bits planar) unavailable
 Fixed misalignment problems on Alpha. The compiler does not align strings, and accessing begin of string as a uint16 makes code to fail.
 Added some extra checks to the tools and examples.
-Fix a bug that prevented to read luminance tag
+Fixed a bug that prevented to read luminance tag
 BIG amount of functionality contributed/Sponsored  by Alien Skin Software: TransformStride, copyAlpha, performance plug-ins. Fixes some warnings as well.
-added an extra _ to _stdcall to make it more portable
+Added an extra _ to _stdcall to make it more portable
 Fixed a bug in transicc for named color profiles
 Fixed several compiler warnings
 Added support for Visual Studio 2015
@@ -32,7 +42,7 @@ Added a flag  to clip negative values in unbounded transforms (only gray, rgb, c
 Move unused var suppresor before the `return` statements.
 Remove dead code.
 Add missing comma in CGATS parser    
-utils/jpgicc/iccjpeg.c: Fix check if unsigned variable 'total_length'… …
+utils/jpgicc/iccjpeg.c: Fix check if unsigned variable 'total_length'â€¦ â€¦
 Some maintenance fixes
 Remove unused vcproj files
 Added a function to retrieve the iohandler of a given profile object
@@ -91,7 +101,7 @@ User defined parametric curves can now be saved in ICC profiles.
 --------------------
 
 Added a check for maximum input channels
-Fixed an unitialized read on PatchLUT
+Fixed an uninitialized read on PatchLUT
 Fixed a bug in XYZ floating point PCS
 added half float variants (ABGR and so)
 Added formatter resolution after xform optimization plugin

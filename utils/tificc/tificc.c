@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2016 Marti Maria Saguer
+//  Copyright (c) 1998-2017 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining 
 // a copy of this software and associated documentation files (the "Software"), 
@@ -650,7 +650,7 @@ void CopyOtherTags(TIFF* in, TIFF* out)
 
 }
 
-// A replacement for (the nonstandard) filelenght
+// A replacement for (the nonstandard) filelength
 
 
 static
@@ -708,7 +708,7 @@ cmsHPROFILE GetTIFFProfile(TIFF* in)
         hProfile = cmsOpenProfileFromMem(EmbedBuffer, EmbedLen);
 
         // Print description found in the profile
-        if (Verbose & hProfile != NULL) {
+        if (Verbose && (hProfile != NULL)) {
 
             fprintf(stdout, "\n[Embedded profile]\n");
             PrintProfileInformation(hProfile);                       

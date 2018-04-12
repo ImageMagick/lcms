@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2016 Marti Maria Saguer
+//  Copyright (c) 1998-2017 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -124,8 +124,8 @@ cmsBool  CMSEXPORT cmsPipelineCheckAndRetreiveStages(const cmsPipeline* Lut, cms
     mpe = Lut ->Elements;
     for (i=0; i < n; i++) {
 
-        // Get asked type
-        Type  = (cmsStageSignature)va_arg(args, cmsStageSignature);
+        // Get asked type. cmsStageSignature is promoted to int by compiler
+        Type  = (cmsStageSignature)va_arg(args, int);
         if (mpe ->Type != Type) {
 
             va_end(args);       // Mismatch. We are done.
@@ -292,7 +292,7 @@ cmsStage* CMSEXPORT cmsStageAllocToneCurves(cmsContext ContextID, cmsUInt32Numbe
 
 
 // Create a bunch of identity curves
-cmsStage* _cmsStageAllocIdentityCurves(cmsContext ContextID, int nChannels)
+cmsStage* CMSEXPORT _cmsStageAllocIdentityCurves(cmsContext ContextID, cmsUInt32Number nChannels)
 {
     cmsStage* mpe = cmsStageAllocToneCurves(ContextID, nChannels, NULL);
 
@@ -414,13 +414,13 @@ cmsStage*  CMSEXPORT cmsStageAllocMatrix(cmsContext ContextID, cmsUInt32Number R
 
     if (Offset != NULL) {
 
-        NewElem ->Offset = (cmsFloat64Number*) _cmsCalloc(ContextID, Cols, sizeof(cmsFloat64Number));
+        NewElem ->Offset = (cmsFloat64Number*) _cmsCalloc(ContextID, Rows, sizeof(cmsFloat64Number));
         if (NewElem->Offset == NULL) {
            MatrixElemTypeFree(NewMPE);
            return NULL;
         }
 
-        for (i=0; i < Cols; i++) {
+        for (i=0; i < Rows; i++) {
                 NewElem ->Offset[i] = Offset[i];
         }
 
@@ -712,7 +712,7 @@ int IdentitySampler(register const cmsUInt16Number In[], register cmsUInt16Numbe
 }
 
 // Creates an MPE that just copies input to output
-cmsStage* _cmsStageAllocIdentityCLut(cmsContext ContextID, int nChan)
+cmsStage* CMSEXPORT _cmsStageAllocIdentityCLut(cmsContext ContextID, cmsUInt32Number nChan)
 {
     cmsUInt32Number Dimensions[MAX_INPUT_DIMENSIONS];
     cmsStage* mpe ;
@@ -736,7 +736,7 @@ cmsStage* _cmsStageAllocIdentityCLut(cmsContext ContextID, int nChan)
 
 
 // Quantize a value 0 <= i < MaxSamples to 0..0xffff
-cmsUInt16Number _cmsQuantizeVal(cmsFloat64Number i, int MaxSamples)
+cmsUInt16Number CMSEXPORT _cmsQuantizeVal(cmsFloat64Number i, cmsUInt32Number MaxSamples)
 {
     cmsFloat64Number x;
 
@@ -749,8 +749,9 @@ cmsUInt16Number _cmsQuantizeVal(cmsFloat64Number i, int MaxSamples)
 // function on knots. returns TRUE if all ok, FALSE otherwise.
 cmsBool CMSEXPORT cmsStageSampleCLut16bit(cmsStage* mpe, cmsSAMPLER16 Sampler, void * Cargo, cmsUInt32Number dwFlags)
 {
-    int i, t, nTotalPoints, index, rest;
-    int nInputs, nOutputs;
+    int i, t, index, rest;
+    cmsUInt32Number nTotalPoints;
+    cmsUInt32Number nInputs, nOutputs;
     cmsUInt32Number* nSamples;
     cmsUInt16Number In[MAX_INPUT_DIMENSIONS+1], Out[MAX_STAGE_CHANNELS];
     _cmsStageCLutData* clut;
@@ -770,14 +771,17 @@ cmsBool CMSEXPORT cmsStageSampleCLut16bit(cmsStage* mpe, cmsSAMPLER16 Sampler, v
     if (nInputs > MAX_INPUT_DIMENSIONS) return FALSE;
     if (nOutputs >= MAX_STAGE_CHANNELS) return FALSE;
 
+    memset(In, 0, sizeof(In));
+    memset(Out, 0, sizeof(Out));
+
     nTotalPoints = CubeSize(nSamples, nInputs);
     if (nTotalPoints == 0) return FALSE;
 
     index = 0;
-    for (i = 0; i < nTotalPoints; i++) {
+    for (i = 0; i < (int) nTotalPoints; i++) {
 
         rest = i;
-        for (t = nInputs-1; t >=0; --t) {
+        for (t = (int)nInputs - 1; t >= 0; --t) {
 
             cmsUInt32Number  Colorant = rest % nSamples[t];
 
@@ -787,7 +791,7 @@ cmsBool CMSEXPORT cmsStageSampleCLut16bit(cmsStage* mpe, cmsSAMPLER16 Sampler, v
         }
 
         if (clut ->Tab.T != NULL) {
-            for (t=0; t < nOutputs; t++)
+            for (t = 0; t < (int)nOutputs; t++)
                 Out[t] = clut->Tab.T[index + t];
         }
 
@@ -797,7 +801,7 @@ cmsBool CMSEXPORT cmsStageSampleCLut16bit(cmsStage* mpe, cmsSAMPLER16 Sampler, v
         if (!(dwFlags & SAMPLER_INSPECT)) {
 
             if (clut ->Tab.T != NULL) {
-                for (t=0; t < nOutputs; t++)
+                for (t=0; t < (int) nOutputs; t++)
                     clut->Tab.T[index + t] = Out[t];
             }
         }
@@ -808,11 +812,12 @@ cmsBool CMSEXPORT cmsStageSampleCLut16bit(cmsStage* mpe, cmsSAMPLER16 Sampler, v
     return TRUE;
 }
 
-// Same as anterior, but for floting point
+// Same as anterior, but for floating point
 cmsBool CMSEXPORT cmsStageSampleCLutFloat(cmsStage* mpe, cmsSAMPLERFLOAT Sampler, void * Cargo, cmsUInt32Number dwFlags)
 {
-    int i, t, nTotalPoints, index, rest;
-    int nInputs, nOutputs;
+    int i, t, index, rest;
+    cmsUInt32Number nTotalPoints;
+    cmsUInt32Number nInputs, nOutputs;
     cmsUInt32Number* nSamples;
     cmsFloat32Number In[MAX_INPUT_DIMENSIONS+1], Out[MAX_STAGE_CHANNELS];
     _cmsStageCLutData* clut = (_cmsStageCLutData*) mpe->Data;
@@ -830,10 +835,10 @@ cmsBool CMSEXPORT cmsStageSampleCLutFloat(cmsStage* mpe, cmsSAMPLERFLOAT Sampler
     if (nTotalPoints == 0) return FALSE;
 
     index = 0;
-    for (i = 0; i < nTotalPoints; i++) {
+    for (i = 0; i < (int)nTotalPoints; i++) {
 
         rest = i;
-        for (t = nInputs-1; t >=0; --t) {
+        for (t = (int) nInputs-1; t >=0; --t) {
 
             cmsUInt32Number  Colorant = rest % nSamples[t];
 
@@ -843,7 +848,7 @@ cmsBool CMSEXPORT cmsStageSampleCLutFloat(cmsStage* mpe, cmsSAMPLERFLOAT Sampler
         }
 
         if (clut ->Tab.TFloat != NULL) {
-            for (t=0; t < nOutputs; t++)
+            for (t=0; t < (int) nOutputs; t++)
                 Out[t] = clut->Tab.TFloat[index + t];
         }
 
@@ -853,7 +858,7 @@ cmsBool CMSEXPORT cmsStageSampleCLutFloat(cmsStage* mpe, cmsSAMPLERFLOAT Sampler
         if (!(dwFlags & SAMPLER_INSPECT)) {
 
             if (clut ->Tab.TFloat != NULL) {
-                for (t=0; t < nOutputs; t++)
+                for (t=0; t < (int) nOutputs; t++)
                     clut->Tab.TFloat[index + t] = Out[t];
             }
         }
@@ -871,7 +876,8 @@ cmsBool CMSEXPORT cmsStageSampleCLutFloat(cmsStage* mpe, cmsSAMPLERFLOAT Sampler
 cmsBool CMSEXPORT cmsSliceSpace16(cmsUInt32Number nInputs, const cmsUInt32Number clutPoints[],
                                          cmsSAMPLER16 Sampler, void * Cargo)
 {
-    int i, t, nTotalPoints, rest;
+    int i, t, rest;
+    cmsUInt32Number nTotalPoints;
     cmsUInt16Number In[cmsMAXCHANNELS];
 
     if (nInputs >= cmsMAXCHANNELS) return FALSE;
@@ -879,10 +885,10 @@ cmsBool CMSEXPORT cmsSliceSpace16(cmsUInt32Number nInputs, const cmsUInt32Number
     nTotalPoints = CubeSize(clutPoints, nInputs);
     if (nTotalPoints == 0) return FALSE;
 
-    for (i = 0; i < nTotalPoints; i++) {
+    for (i = 0; i < (int) nTotalPoints; i++) {
 
         rest = i;
-        for (t = nInputs-1; t >=0; --t) {
+        for (t = (int) nInputs-1; t >=0; --t) {
 
             cmsUInt32Number  Colorant = rest % clutPoints[t];
 
@@ -901,7 +907,8 @@ cmsBool CMSEXPORT cmsSliceSpace16(cmsUInt32Number nInputs, const cmsUInt32Number
 cmsInt32Number CMSEXPORT cmsSliceSpaceFloat(cmsUInt32Number nInputs, const cmsUInt32Number clutPoints[],
                                             cmsSAMPLERFLOAT Sampler, void * Cargo)
 {
-    int i, t, nTotalPoints, rest;
+    int i, t, rest;
+    cmsUInt32Number nTotalPoints;
     cmsFloat32Number In[cmsMAXCHANNELS];
 
     if (nInputs >= cmsMAXCHANNELS) return FALSE;
@@ -909,10 +916,10 @@ cmsInt32Number CMSEXPORT cmsSliceSpaceFloat(cmsUInt32Number nInputs, const cmsUI
     nTotalPoints = CubeSize(clutPoints, nInputs);
     if (nTotalPoints == 0) return FALSE;
 
-    for (i = 0; i < nTotalPoints; i++) {
+    for (i = 0; i < (int) nTotalPoints; i++) {
 
         rest = i;
-        for (t = nInputs-1; t >=0; --t) {
+        for (t = (int) nInputs-1; t >=0; --t) {
 
             cmsUInt32Number  Colorant = rest % clutPoints[t];
 
@@ -962,7 +969,7 @@ void EvaluateLab2XYZ(const cmsFloat32Number In[],
 
 
 // No dup or free routines needed, as the structure has no pointers in it.
-cmsStage* _cmsStageAllocLab2XYZ(cmsContext ContextID)
+cmsStage* CMSEXPORT _cmsStageAllocLab2XYZ(cmsContext ContextID)
 {
     return _cmsStageAllocPlaceholder(ContextID, cmsSigLab2XYZElemType, 3, 3, EvaluateLab2XYZ, NULL, NULL, NULL);
 }
@@ -992,7 +999,7 @@ cmsStage* _cmsStageAllocLabV2ToV4curves(cmsContext ContextID)
             return NULL;
         }
 
-        // We need to map * (0xffff / 0xff00), thats same as (257 / 256)
+        // We need to map * (0xffff / 0xff00), that's same as (257 / 256)
         // So we can use 258-entry tables to do the trick (i / 257) * (255 * 257) * (257 / 256);
         for (i=0; i < 257; i++)  {
 
@@ -1013,7 +1020,7 @@ cmsStage* _cmsStageAllocLabV2ToV4curves(cmsContext ContextID)
 // ********************************************************************************
 
 // Matrix-based conversion, which is more accurate, but slower and cannot properly be saved in devicelink profiles
-cmsStage* _cmsStageAllocLabV2ToV4(cmsContext ContextID)
+cmsStage* CMSEXPORT _cmsStageAllocLabV2ToV4(cmsContext ContextID)
 {
     static const cmsFloat64Number V2ToV4[] = { 65535.0/65280.0, 0, 0,
                                      0, 65535.0/65280.0, 0,
@@ -1029,7 +1036,7 @@ cmsStage* _cmsStageAllocLabV2ToV4(cmsContext ContextID)
 
 
 // Reverse direction
-cmsStage* _cmsStageAllocLabV4ToV2(cmsContext ContextID)
+cmsStage* CMSEXPORT _cmsStageAllocLabV4ToV2(cmsContext ContextID)
 {
     static const cmsFloat64Number V4ToV2[] = { 65280.0/65535.0, 0, 0,
                                      0, 65280.0/65535.0, 0,
@@ -1137,7 +1144,7 @@ void Clipper(const cmsFloat32Number In[], cmsFloat32Number Out[], const cmsStage
        }
 }
 
-cmsStage*  _cmsStageClipNegatives(cmsContext ContextID, int nChannels)
+cmsStage*  _cmsStageClipNegatives(cmsContext ContextID, cmsUInt32Number nChannels)
 {
        return _cmsStageAllocPlaceholder(ContextID, cmsSigClipNegativesElemType,
               nChannels, nChannels, Clipper, NULL, NULL, NULL);
@@ -1172,7 +1179,7 @@ void EvaluateXYZ2Lab(const cmsFloat32Number In[], cmsFloat32Number Out[], const 
     cmsUNUSED_PARAMETER(mpe);
 }
 
-cmsStage* _cmsStageAllocXYZ2Lab(cmsContext ContextID)
+cmsStage* CMSEXPORT _cmsStageAllocXYZ2Lab(cmsContext ContextID)
 {
     return _cmsStageAllocPlaceholder(ContextID, cmsSigXYZ2LabElemType, 3, 3, EvaluateXYZ2Lab, NULL, NULL, NULL);
 
@@ -1271,21 +1278,40 @@ cmsStage* CMSEXPORT cmsStageDup(cmsStage* mpe)
 // ***********************************************************************************************************
 
 // This function sets up the channel count
-
 static
-void BlessLUT(cmsPipeline* lut)
+cmsBool BlessLUT(cmsPipeline* lut)
 {
-    // We can set the input/ouput channels only if we have elements.
+    // We can set the input/output channels only if we have elements.
     if (lut ->Elements != NULL) {
 
-        cmsStage *First, *Last;
+        cmsStage* prev;
+        cmsStage* next;
+        cmsStage* First;
+        cmsStage* Last;
 
         First  = cmsPipelineGetPtrToFirstStage(lut);
         Last   = cmsPipelineGetPtrToLastStage(lut);
 
-        if (First != NULL)lut ->InputChannels = First ->InputChannels;
-        if (Last != NULL) lut ->OutputChannels = Last ->OutputChannels;
+        if (First == NULL || Last == NULL) return FALSE;
+
+        lut->InputChannels = First->InputChannels;
+        lut->OutputChannels = Last->OutputChannels;
+
+        // Check chain consistency
+        prev = First;
+        next = prev->Next;
+
+        while (next != NULL)
+        {
+            if (next->InputChannels != prev->OutputChannels)
+                return FALSE;
+
+            next = next->Next;
+            prev = prev->Next;
     }
+}
+
+    return TRUE;    
 }
 
 
@@ -1339,20 +1365,17 @@ void _LUTevalFloat(register const cmsFloat32Number In[], register cmsFloat32Numb
 }
 
 
-
-
 // LUT Creation & Destruction
-
 cmsPipeline* CMSEXPORT cmsPipelineAlloc(cmsContext ContextID, cmsUInt32Number InputChannels, cmsUInt32Number OutputChannels)
 {
        cmsPipeline* NewLUT;
 
+       // A value of zero in channels is allowed as placeholder
        if (InputChannels >= cmsMAXCHANNELS ||
            OutputChannels >= cmsMAXCHANNELS) return NULL;
 
        NewLUT = (cmsPipeline*) _cmsMallocZero(ContextID, sizeof(cmsPipeline));
        if (NewLUT == NULL) return NULL;
-
 
        NewLUT -> InputChannels  = InputChannels;
        NewLUT -> OutputChannels = OutputChannels;
@@ -1364,7 +1387,11 @@ cmsPipeline* CMSEXPORT cmsPipelineAlloc(cmsContext ContextID, cmsUInt32Number In
        NewLUT ->Data        = NewLUT;
        NewLUT ->ContextID   = ContextID;
 
-       BlessLUT(NewLUT);
+       if (!BlessLUT(NewLUT))
+       {
+           _cmsFree(ContextID, NewLUT);
+           return NULL;
+       }
 
        return NewLUT;
 }
@@ -1471,7 +1498,12 @@ cmsPipeline* CMSEXPORT cmsPipelineDup(const cmsPipeline* lut)
 
     NewLUT ->SaveAs8Bits    = lut ->SaveAs8Bits;
 
-    BlessLUT(NewLUT);
+    if (!BlessLUT(NewLUT))
+    {
+        _cmsFree(lut->ContextID, NewLUT);
+        return NULL;
+    }
+
     return NewLUT;
 }
 
@@ -1508,8 +1540,7 @@ int CMSEXPORT cmsPipelineInsertStage(cmsPipeline* lut, cmsStageLoc loc, cmsStage
             return FALSE;
     }
 
-    BlessLUT(lut);
-    return TRUE;
+    return BlessLUT(lut);    
 }
 
 // Unlink an element and return the pointer to it
@@ -1564,6 +1595,7 @@ void CMSEXPORT cmsPipelineUnlinkStage(cmsPipeline* lut, cmsStageLoc loc, cmsStag
     else
         cmsStageFree(Unlinked);
 
+    // May fail, but we ignore it
     BlessLUT(lut);
 }
 
@@ -1590,8 +1622,7 @@ cmsBool  CMSEXPORT cmsPipelineCat(cmsPipeline* l1, const cmsPipeline* l2)
                 return FALSE;
     }
 
-    BlessLUT(l1);
-    return TRUE;
+    return BlessLUT(l1);    
 }
 
 

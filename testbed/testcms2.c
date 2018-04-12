@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2016 Marti Maria Saguer
+//  Copyright (c) 1998-2017 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -1571,7 +1571,7 @@ cmsInt32Number CheckReverseInterpolation3x3(void)
    if (Result[0] != 0 || Result[1] != 0 || Result[2] != 0){
 
        Fail("Reverse interpolation didn't find zero");
-       return 0;
+       goto Error;
    }
 
    // Transverse identity
@@ -1591,6 +1591,10 @@ cmsInt32Number CheckReverseInterpolation3x3(void)
 
     cmsPipelineFree(Lut);
     return (max <= FLOAT_PRECISSION);
+
+Error:
+    cmsPipelineFree(Lut);
+    return 0;
 }
 
 
@@ -1648,9 +1652,9 @@ cmsInt32Number CheckReverseInterpolation4x3(void)
 
        cmsPipelineEvalFloat(Target, Result, Lut);
 
-       if (!IsGoodFixed15_16("0", Target[0], Result[0])) return 0;
-       if (!IsGoodFixed15_16("1", Target[1], Result[1])) return 0;
-       if (!IsGoodFixed15_16("2", Target[2], Result[2])) return 0;
+       if (!IsGoodFixed15_16("0", Target[0], Result[0])) goto Error;
+       if (!IsGoodFixed15_16("1", Target[1], Result[1])) goto Error;
+       if (!IsGoodFixed15_16("2", Target[2], Result[2])) goto Error;
    }
 
    SubTest("4->3 zero");
@@ -1669,7 +1673,7 @@ cmsInt32Number CheckReverseInterpolation4x3(void)
    if (Result[0] != 0 || Result[1] != 0 || Result[2] != 0 || Result[3] != 0){
 
        Fail("Reverse interpolation didn't find zero");
-       return 0;
+       goto Error;
    }
 
    SubTest("4->3 find CMY");
@@ -1689,6 +1693,10 @@ cmsInt32Number CheckReverseInterpolation4x3(void)
 
     cmsPipelineFree(Lut);
     return (max <= FLOAT_PRECISSION);
+
+Error:
+    cmsPipelineFree(Lut);
+    return 0;
 }
 
 
@@ -2731,7 +2739,7 @@ cmsToneCurve* Build_sRGBGamma(void)
 
 
 
-// Join two gamma tables in floting point format. Result should be a straight line
+// Join two gamma tables in floating point format. Result should be a straight line
 static
 cmsToneCurve* CombineGammaFloat(cmsToneCurve* g1, cmsToneCurve* g2)
 {
@@ -3671,10 +3679,10 @@ cmsInt32Number CheckNamedColorList(void)
 {
     cmsNAMEDCOLORLIST* nc = NULL, *nc2;
     cmsInt32Number i, j, rc=1;
-    char Name[255];
+    char Name[cmsMAX_PATH];
     cmsUInt16Number PCS[3];
     cmsUInt16Number Colorant[cmsMAXCHANNELS];
-    char CheckName[255];
+    char CheckName[cmsMAX_PATH];
     cmsUInt16Number CheckPCS[3];
     cmsUInt16Number CheckColorant[cmsMAXCHANNELS];
     cmsHPROFILE h;
@@ -3805,9 +3813,9 @@ void CheckSingleFormatter16(cmsContext id, cmsUInt32Number Type, const char* Tex
                 Values[i] <<= 8;
         }
 
-    b.Fmt16(&info, Values, Buffer, 1);
+    b.Fmt16(&info, Values, Buffer, 2);
     memset(Values, 0, sizeof(Values));
-    f.Fmt16(&info, Values, Buffer, 1);
+    f.Fmt16(&info, Values, Buffer, 2);
 
     for (i=0; i < nChannels; i++) {
         if (bytes == 1)
@@ -4000,6 +4008,8 @@ cmsInt32Number CheckFormatters16(void)
    C( TYPE_ALabV2_8 );
    C( TYPE_LabV2_16 );
 
+#ifndef CMS_NO_HALF_SUPPORT 
+
    C( TYPE_GRAY_HALF_FLT );
    C( TYPE_RGB_HALF_FLT  );
    C( TYPE_CMYK_HALF_FLT );
@@ -4011,6 +4021,7 @@ cmsInt32Number CheckFormatters16(void)
    C( TYPE_BGRA_HALF_FLT );
    C( TYPE_ABGR_HALF_FLT );
 
+#endif
 
    return FormatterFailed == 0 ? 1 : 0;
 }
@@ -4106,7 +4117,9 @@ cmsInt32Number CheckFormattersFloat(void)
     C( TYPE_RGB_DBL  );
     C( TYPE_BGR_DBL  );
     C( TYPE_CMYK_DBL );
+    C( TYPE_XYZ_FLT );
 
+#ifndef CMS_NO_HALF_SUPPORT 
    C( TYPE_GRAY_HALF_FLT );
    C( TYPE_RGB_HALF_FLT  );
    C( TYPE_CMYK_HALF_FLT );
@@ -4117,8 +4130,9 @@ cmsInt32Number CheckFormattersFloat(void)
    C( TYPE_BGR_HALF_FLT  );
    C( TYPE_BGRA_HALF_FLT );
    C( TYPE_ABGR_HALF_FLT );
+#endif
 
-   C( TYPE_XYZ_FLT );
+
 
 
    return FormatterFailed == 0 ? 1 : 0;
@@ -5240,139 +5254,139 @@ cmsInt32Number CheckProfileCreation(void)
     if (h == NULL) return 0;
 
     cmsSetProfileVersion(h, 4.3);
-    if (cmsGetTagCount(h) != 0) { Fail("Empty profile with nonzero number of tags"); return 0; }
-    if (cmsIsTag(h, cmsSigAToB0Tag)) { Fail("Found a tag in an empty profile"); return 0; }
+    if (cmsGetTagCount(h) != 0) { Fail("Empty profile with nonzero number of tags"); goto Error; }
+    if (cmsIsTag(h, cmsSigAToB0Tag)) { Fail("Found a tag in an empty profile"); goto Error; }
 
     cmsSetColorSpace(h, cmsSigRgbData);
-    if (cmsGetColorSpace(h) !=  cmsSigRgbData) { Fail("Unable to set colorspace"); return 0; }
+    if (cmsGetColorSpace(h) !=  cmsSigRgbData) { Fail("Unable to set colorspace"); goto Error; }
 
     cmsSetPCS(h, cmsSigLabData);
-    if (cmsGetPCS(h) !=  cmsSigLabData) { Fail("Unable to set colorspace"); return 0; }
+    if (cmsGetPCS(h) !=  cmsSigLabData) { Fail("Unable to set colorspace"); goto Error; }
 
     cmsSetDeviceClass(h, cmsSigDisplayClass);
-    if (cmsGetDeviceClass(h) != cmsSigDisplayClass) { Fail("Unable to set deviceclass"); return 0; }
+    if (cmsGetDeviceClass(h) != cmsSigDisplayClass) { Fail("Unable to set deviceclass"); goto Error; }
 
     cmsSetHeaderRenderingIntent(h, INTENT_SATURATION);
-    if (cmsGetHeaderRenderingIntent(h) != INTENT_SATURATION) { Fail("Unable to set rendering intent"); return 0; }
+    if (cmsGetHeaderRenderingIntent(h) != INTENT_SATURATION) { Fail("Unable to set rendering intent"); goto Error; }
 
     for (Pass = 1; Pass <= 2; Pass++) {
 
         SubTest("Tags holding XYZ");
 
-        if (!CheckXYZ(Pass, h, cmsSigBlueColorantTag)) return 0;
-        if (!CheckXYZ(Pass, h, cmsSigGreenColorantTag)) return 0;
-        if (!CheckXYZ(Pass, h, cmsSigRedColorantTag)) return 0;
-        if (!CheckXYZ(Pass, h, cmsSigMediaBlackPointTag)) return 0;
-        if (!CheckXYZ(Pass, h, cmsSigMediaWhitePointTag)) return 0;
-        if (!CheckXYZ(Pass, h, cmsSigLuminanceTag)) return 0;
+        if (!CheckXYZ(Pass, h, cmsSigBlueColorantTag)) goto Error;
+        if (!CheckXYZ(Pass, h, cmsSigGreenColorantTag)) goto Error;
+        if (!CheckXYZ(Pass, h, cmsSigRedColorantTag)) goto Error;
+        if (!CheckXYZ(Pass, h, cmsSigMediaBlackPointTag)) goto Error;
+        if (!CheckXYZ(Pass, h, cmsSigMediaWhitePointTag)) goto Error;
+        if (!CheckXYZ(Pass, h, cmsSigLuminanceTag)) goto Error;
 
         SubTest("Tags holding curves");
 
-        if (!CheckGamma(Pass, h, cmsSigBlueTRCTag)) return 0;
-        if (!CheckGamma(Pass, h, cmsSigGrayTRCTag)) return 0;
-        if (!CheckGamma(Pass, h, cmsSigGreenTRCTag)) return 0;
-        if (!CheckGamma(Pass, h, cmsSigRedTRCTag)) return 0;
+        if (!CheckGamma(Pass, h, cmsSigBlueTRCTag)) goto Error;
+        if (!CheckGamma(Pass, h, cmsSigGrayTRCTag)) goto Error;
+        if (!CheckGamma(Pass, h, cmsSigGreenTRCTag)) goto Error;
+        if (!CheckGamma(Pass, h, cmsSigRedTRCTag)) goto Error;
 
         SubTest("Tags holding text");
 
-        if (!CheckTextSingle(Pass, h, cmsSigCharTargetTag)) return 0;
-        if (!CheckTextSingle(Pass, h, cmsSigScreeningDescTag)) return 0;
+        if (!CheckTextSingle(Pass, h, cmsSigCharTargetTag)) goto Error;
+        if (!CheckTextSingle(Pass, h, cmsSigScreeningDescTag)) goto Error;
 
-        if (!CheckText(Pass, h, cmsSigCopyrightTag)) return 0;
-        if (!CheckText(Pass, h, cmsSigProfileDescriptionTag)) return 0;
-        if (!CheckText(Pass, h, cmsSigDeviceMfgDescTag)) return 0;
-        if (!CheckText(Pass, h, cmsSigDeviceModelDescTag)) return 0;
-        if (!CheckText(Pass, h, cmsSigViewingCondDescTag)) return 0;
+        if (!CheckText(Pass, h, cmsSigCopyrightTag)) goto Error;
+        if (!CheckText(Pass, h, cmsSigProfileDescriptionTag)) goto Error;
+        if (!CheckText(Pass, h, cmsSigDeviceMfgDescTag)) goto Error;
+        if (!CheckText(Pass, h, cmsSigDeviceModelDescTag)) goto Error;
+        if (!CheckText(Pass, h, cmsSigViewingCondDescTag)) goto Error;
 
      
 
         SubTest("Tags holding cmsICCData");
 
-        if (!CheckData(Pass, h, cmsSigPs2CRD0Tag)) return 0;
-        if (!CheckData(Pass, h, cmsSigPs2CRD1Tag)) return 0;
-        if (!CheckData(Pass, h, cmsSigPs2CRD2Tag)) return 0;
-        if (!CheckData(Pass, h, cmsSigPs2CRD3Tag)) return 0;
-        if (!CheckData(Pass, h, cmsSigPs2CSATag)) return 0;
-        if (!CheckData(Pass, h, cmsSigPs2RenderingIntentTag)) return 0;
+        if (!CheckData(Pass, h, cmsSigPs2CRD0Tag)) goto Error;
+        if (!CheckData(Pass, h, cmsSigPs2CRD1Tag)) goto Error;
+        if (!CheckData(Pass, h, cmsSigPs2CRD2Tag)) goto Error;
+        if (!CheckData(Pass, h, cmsSigPs2CRD3Tag)) goto Error;
+        if (!CheckData(Pass, h, cmsSigPs2CSATag)) goto Error;
+        if (!CheckData(Pass, h, cmsSigPs2RenderingIntentTag)) goto Error;
 
         SubTest("Tags holding signatures");
 
-        if (!CheckSignature(Pass, h, cmsSigColorimetricIntentImageStateTag)) return 0;
-        if (!CheckSignature(Pass, h, cmsSigPerceptualRenderingIntentGamutTag)) return 0;
-        if (!CheckSignature(Pass, h, cmsSigSaturationRenderingIntentGamutTag)) return 0;
-        if (!CheckSignature(Pass, h, cmsSigTechnologyTag)) return 0;
+        if (!CheckSignature(Pass, h, cmsSigColorimetricIntentImageStateTag)) goto Error;
+        if (!CheckSignature(Pass, h, cmsSigPerceptualRenderingIntentGamutTag)) goto Error;
+        if (!CheckSignature(Pass, h, cmsSigSaturationRenderingIntentGamutTag)) goto Error;
+        if (!CheckSignature(Pass, h, cmsSigTechnologyTag)) goto Error;
 
         SubTest("Tags holding date_time");
 
-        if (!CheckDateTime(Pass, h, cmsSigCalibrationDateTimeTag)) return 0;
-        if (!CheckDateTime(Pass, h, cmsSigDateTimeTag)) return 0;
+        if (!CheckDateTime(Pass, h, cmsSigCalibrationDateTimeTag)) goto Error;
+        if (!CheckDateTime(Pass, h, cmsSigDateTimeTag)) goto Error;
 
         SubTest("Tags holding named color lists");
 
-        if (!CheckNamedColor(Pass, h, cmsSigColorantTableTag, 15, FALSE)) return 0;
-        if (!CheckNamedColor(Pass, h, cmsSigColorantTableOutTag, 15, FALSE)) return 0;
-        if (!CheckNamedColor(Pass, h, cmsSigNamedColor2Tag, 4096, TRUE)) return 0;
+        if (!CheckNamedColor(Pass, h, cmsSigColorantTableTag, 15, FALSE)) goto Error;
+        if (!CheckNamedColor(Pass, h, cmsSigColorantTableOutTag, 15, FALSE)) goto Error;
+        if (!CheckNamedColor(Pass, h, cmsSigNamedColor2Tag, 4096, TRUE)) goto Error;
 
         SubTest("Tags holding LUTs");
 
-        if (!CheckLUT(Pass, h, cmsSigAToB0Tag)) return 0;
-        if (!CheckLUT(Pass, h, cmsSigAToB1Tag)) return 0;
-        if (!CheckLUT(Pass, h, cmsSigAToB2Tag)) return 0;
-        if (!CheckLUT(Pass, h, cmsSigBToA0Tag)) return 0;
-        if (!CheckLUT(Pass, h, cmsSigBToA1Tag)) return 0;
-        if (!CheckLUT(Pass, h, cmsSigBToA2Tag)) return 0;
-        if (!CheckLUT(Pass, h, cmsSigPreview0Tag)) return 0;
-        if (!CheckLUT(Pass, h, cmsSigPreview1Tag)) return 0;
-        if (!CheckLUT(Pass, h, cmsSigPreview2Tag)) return 0;
-        if (!CheckLUT(Pass, h, cmsSigGamutTag)) return 0;
+        if (!CheckLUT(Pass, h, cmsSigAToB0Tag)) goto Error;
+        if (!CheckLUT(Pass, h, cmsSigAToB1Tag)) goto Error;
+        if (!CheckLUT(Pass, h, cmsSigAToB2Tag)) goto Error;
+        if (!CheckLUT(Pass, h, cmsSigBToA0Tag)) goto Error;
+        if (!CheckLUT(Pass, h, cmsSigBToA1Tag)) goto Error;
+        if (!CheckLUT(Pass, h, cmsSigBToA2Tag)) goto Error;
+        if (!CheckLUT(Pass, h, cmsSigPreview0Tag)) goto Error;
+        if (!CheckLUT(Pass, h, cmsSigPreview1Tag)) goto Error;
+        if (!CheckLUT(Pass, h, cmsSigPreview2Tag)) goto Error;
+        if (!CheckLUT(Pass, h, cmsSigGamutTag)) goto Error;
 
         SubTest("Tags holding CHAD");
-        if (!CheckCHAD(Pass, h, cmsSigChromaticAdaptationTag)) return 0;
+        if (!CheckCHAD(Pass, h, cmsSigChromaticAdaptationTag)) goto Error;
 
         SubTest("Tags holding Chromaticity");
-        if (!CheckChromaticity(Pass, h, cmsSigChromaticityTag)) return 0;
+        if (!CheckChromaticity(Pass, h, cmsSigChromaticityTag)) goto Error;
 
         SubTest("Tags holding colorant order");
-        if (!CheckColorantOrder(Pass, h, cmsSigColorantOrderTag)) return 0;
+        if (!CheckColorantOrder(Pass, h, cmsSigColorantOrderTag)) goto Error;
 
         SubTest("Tags holding measurement");
-        if (!CheckMeasurement(Pass, h, cmsSigMeasurementTag)) return 0;
+        if (!CheckMeasurement(Pass, h, cmsSigMeasurementTag)) goto Error;
 
         SubTest("Tags holding CRD info");
-        if (!CheckCRDinfo(Pass, h, cmsSigCrdInfoTag)) return 0;
+        if (!CheckCRDinfo(Pass, h, cmsSigCrdInfoTag)) goto Error;
 
         SubTest("Tags holding UCR/BG");
-        if (!CheckUcrBg(Pass, h, cmsSigUcrBgTag)) return 0;
+        if (!CheckUcrBg(Pass, h, cmsSigUcrBgTag)) goto Error;
 
         SubTest("Tags holding MPE");
-        if (!CheckMPE(Pass, h, cmsSigDToB0Tag)) return 0;
-        if (!CheckMPE(Pass, h, cmsSigDToB1Tag)) return 0;
-        if (!CheckMPE(Pass, h, cmsSigDToB2Tag)) return 0;
-        if (!CheckMPE(Pass, h, cmsSigDToB3Tag)) return 0;
-        if (!CheckMPE(Pass, h, cmsSigBToD0Tag)) return 0;
-        if (!CheckMPE(Pass, h, cmsSigBToD1Tag)) return 0;
-        if (!CheckMPE(Pass, h, cmsSigBToD2Tag)) return 0;
-        if (!CheckMPE(Pass, h, cmsSigBToD3Tag)) return 0;
+        if (!CheckMPE(Pass, h, cmsSigDToB0Tag)) goto Error;
+        if (!CheckMPE(Pass, h, cmsSigDToB1Tag)) goto Error;
+        if (!CheckMPE(Pass, h, cmsSigDToB2Tag)) goto Error;
+        if (!CheckMPE(Pass, h, cmsSigDToB3Tag)) goto Error;
+        if (!CheckMPE(Pass, h, cmsSigBToD0Tag)) goto Error;
+        if (!CheckMPE(Pass, h, cmsSigBToD1Tag)) goto Error;
+        if (!CheckMPE(Pass, h, cmsSigBToD2Tag)) goto Error;
+        if (!CheckMPE(Pass, h, cmsSigBToD3Tag)) goto Error;
 
         SubTest("Tags using screening");
-        if (!CheckScreening(Pass, h, cmsSigScreeningTag)) return 0;
+        if (!CheckScreening(Pass, h, cmsSigScreeningTag)) goto Error;
 
         SubTest("Tags holding profile sequence description");
-        if (!CheckProfileSequenceTag(Pass, h)) return 0;
-        if (!CheckProfileSequenceIDTag(Pass, h)) return 0;
+        if (!CheckProfileSequenceTag(Pass, h)) goto Error;
+        if (!CheckProfileSequenceIDTag(Pass, h)) goto Error;
 
         SubTest("Tags holding ICC viewing conditions");
-        if (!CheckICCViewingConditions(Pass, h)) return 0;
+        if (!CheckICCViewingConditions(Pass, h)) goto Error;
 
         SubTest("VCGT tags");
-        if (!CheckVCGT(Pass, h)) return 0;
+        if (!CheckVCGT(Pass, h)) goto Error;
 
         SubTest("RAW tags");
-        if (!CheckRAWtags(Pass, h)) return 0;
+        if (!CheckRAWtags(Pass, h)) goto Error;
 
         SubTest("Dictionary meta tags");
-        // if (!CheckDictionary16(Pass, h)) return 0;
-        if (!CheckDictionary24(Pass, h)) return 0;
+        // if (!CheckDictionary16(Pass, h)) goto Error;
+        if (!CheckDictionary24(Pass, h)) goto Error;
 
         if (Pass == 1) {
             cmsSaveProfileToFile(h, "alltags.icc");
@@ -5394,6 +5408,11 @@ cmsInt32Number CheckProfileCreation(void)
     cmsCloseProfile(h);
     remove("alltags.icc");
     return 1;
+
+Error:
+    cmsCloseProfile(h);
+    remove("alltags.icc");
+    return 0;
 }
 
 
@@ -6856,6 +6875,33 @@ cmsInt32Number CheckCGATS(void)
 }
 
 
+static
+cmsInt32Number CheckCGATS2(void)
+{
+    cmsHANDLE handle;
+    const cmsUInt8Number junk[] = { 0x0, 0xd, 0xd, 0xa, 0x20, 0xd, 0x20, 0x20, 0x20, 0x3a, 0x31, 0x3d, 0x3d, 0x3d, 0x3d };
+
+    handle = cmsIT8LoadFromMem(0, (const void*)junk, sizeof(junk));
+    if (handle)
+        cmsIT8Free(handle);
+
+    return 1;
+}
+
+
+static
+cmsInt32Number CheckCGATS_Overflow(void)
+{
+    cmsHANDLE handle;
+    const cmsUInt8Number junk[] = { "@\nA 1.e2147483648\n" };
+
+    handle = cmsIT8LoadFromMem(0, (const void*)junk, sizeof(junk));
+    if (handle)
+        cmsIT8Free(handle);
+
+    return 1;
+}
+
 // Create CSA/CRD
 
 static
@@ -7952,8 +7998,142 @@ int CheckPlanar8opt(void)
     return 1;
 }
 
+/**
+* Bug reported & fixed. Thanks to Kornel Lesinski for spotting this.
+*/
+static
+int CheckSE(void)
+{
+    cmsHPROFILE input_profile = Create_AboveRGB();
+    cmsHPROFILE output_profile = cmsCreate_sRGBProfile();
 
+    cmsHTRANSFORM tr = cmsCreateTransform(input_profile, TYPE_RGBA_8, output_profile, TYPE_RGBA_16_SE, INTENT_RELATIVE_COLORIMETRIC, cmsFLAGS_COPY_ALPHA);
+   
+    cmsUInt8Number rgba[4] = { 40, 41, 41, 0xfa };
+    cmsUInt16Number out[4];
 
+    cmsDoTransform(tr, rgba, out, 1);
+    cmsCloseProfile(input_profile);
+    cmsCloseProfile(output_profile);
+    cmsDeleteTransform(tr);
+
+    if (out[0] != 0xf622 || out[1] != 0x7f24 || out[2] != 0x7f24)
+        return 0;
+
+    return 1;
+}
+
+/**
+* Bug reported.
+*/
+static
+int CheckForgedMPE(void) 
+{
+    cmsUInt32Number i;
+    cmsHPROFILE srcProfile;
+    cmsHPROFILE dstProfile;
+    cmsColorSpaceSignature srcCS;
+    cmsUInt32Number nSrcComponents;
+    cmsUInt32Number srcFormat;
+    cmsUInt32Number intent = 0;
+    cmsUInt32Number flags = 0;
+    cmsHTRANSFORM hTransform;
+    cmsUInt8Number output[4];
+
+    srcProfile = cmsOpenProfileFromFile("bad_mpe.icc", "r");
+    if (!srcProfile)
+        return 0;
+
+    dstProfile = cmsCreate_sRGBProfile();
+    if (!dstProfile) {
+        cmsCloseProfile(srcProfile);
+        return 0;
+    }
+
+    srcCS = cmsGetColorSpace(srcProfile);
+    nSrcComponents = cmsChannelsOf(srcCS);
+    
+    if (srcCS == cmsSigLabData) {
+        srcFormat =
+            COLORSPACE_SH(PT_Lab) | CHANNELS_SH(nSrcComponents) | BYTES_SH(0);
+    }
+    else {
+        srcFormat =
+            COLORSPACE_SH(PT_ANY) | CHANNELS_SH(nSrcComponents) | BYTES_SH(1);
+    }
+
+    cmsSetLogErrorHandler(ErrorReportingFunction);
+
+    hTransform = cmsCreateTransform(srcProfile, srcFormat, dstProfile,
+        TYPE_BGR_8, intent, flags);
+    cmsCloseProfile(srcProfile);
+    cmsCloseProfile(dstProfile);
+
+    cmsSetLogErrorHandler(FatalErrorQuit);    
+
+    // Should report error
+    if (!TrappedError) return 0;
+
+    TrappedError = FALSE;
+
+    // Transform should NOT be created
+    if (!hTransform) return 1;
+    
+    // Never should reach here
+    if (T_BYTES(srcFormat) == 0) {  // 0 means double
+        double input[128];
+        for (i = 0; i < nSrcComponents; i++)
+            input[i] = 0.5f;
+        cmsDoTransform(hTransform, input, output, 1);
+    }
+    else {
+        cmsUInt8Number input[128];
+        for (i = 0; i < nSrcComponents; i++)
+            input[i] = 128;
+        cmsDoTransform(hTransform, input, output, 1);
+    }
+    cmsDeleteTransform(hTransform);
+
+    return 0;
+}
+
+/**
+* What the self test is trying to do is creating a proofing transform
+* with gamut check, so we can getting the coverage of one profile of
+* another, i.e. to approximate the gamut intersection. e.g.
+* Thanks to Richard Hughes for providing the test
+*/
+static
+int CheckProofingIntersection(void)
+{
+    cmsHPROFILE profile_null, hnd1, hnd2;
+    cmsHTRANSFORM transform;
+
+    hnd1 = cmsCreate_sRGBProfile();
+    hnd2 = Create_AboveRGB();
+
+    profile_null = cmsCreateNULLProfileTHR(DbgThread());
+    transform = cmsCreateProofingTransformTHR(DbgThread(),
+        hnd1,
+        TYPE_RGB_FLT,
+        profile_null,
+        TYPE_GRAY_FLT,
+        hnd2,
+        INTENT_ABSOLUTE_COLORIMETRIC,
+        INTENT_ABSOLUTE_COLORIMETRIC,
+        cmsFLAGS_GAMUTCHECK |
+        cmsFLAGS_SOFTPROOFING);
+
+    cmsCloseProfile(hnd1);
+    cmsCloseProfile(hnd2);
+    cmsCloseProfile(profile_null);
+
+    // Failed?
+    if (transform == NULL) return 0;
+
+    cmsDeleteTransform(transform);
+    return 1;
+}
 
 // --------------------------------------------------------------------------------------------------
 // P E R F O R M A N C E   C H E C K S
@@ -8373,6 +8553,7 @@ int main(int argc, char* argv[])
     _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
 
+
     // First of all, check for the right header
    if (cmsGetEncodedCMMversion() != LCMS_VERSION) {
           Die("Oops, you are mixing header and shared lib!\nHeader version reports to be '%d' and shared lib '%d'\n", LCMS_VERSION, cmsGetEncodedCMMversion());
@@ -8402,7 +8583,7 @@ int main(int argc, char* argv[])
     printf("done.\n");
     
     PrintSupportedIntents();
-
+    
     Check("Base types", CheckBaseTypes);
     Check("endianess", CheckEndianess);
     Check("quick floor", CheckQuickFloor);
@@ -8580,6 +8761,8 @@ int main(int argc, char* argv[])
     Check("TAC detection", CheckTAC);
 
     Check("CGATS parser", CheckCGATS);
+    Check("CGATS parser on junk", CheckCGATS2);
+    Check("CGATS parser on overflow", CheckCGATS_Overflow);
     Check("PostScript generator", CheckPostScript);
     Check("Segment maxima GBD", CheckGBD);
     Check("MD5 digest", CheckMD5);
@@ -8595,9 +8778,10 @@ int main(int argc, char* argv[])
     Check("Set free a tag", CheckRemoveTag);
     Check("Matrix simplification", CheckMatrixSimplify);
     Check("Planar 8 optimization", CheckPlanar8opt);
-
+    Check("Swap endian feature", CheckSE);
     Check("Transform line stride RGB", CheckTransformLineStride);
-
+    Check("Forged MPE profile", CheckForgedMPE);
+    Check("Proofing intersection", CheckProofingIntersection);
     }
 
     if (DoPluginTests)
