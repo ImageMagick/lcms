@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2017 Marti Maria Saguer
+//  Copyright (c) 1998-2020 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining 
 // a copy of this software and associated documentation files (the "Software"), 
@@ -102,7 +102,7 @@ void Help(void)
     fprintf(stderr, "\t%cw - use 16 bits\n", SW);     
     fprintf(stderr, "\t%cx - Hexadecimal\n\n", SW);
 
-    fprintf(stderr, "%cs - bounded mode (clip negatives and highliths)\n", SW);
+    fprintf(stderr, "%cs - bounded mode (clip negatives and highlights)\n", SW);
     fprintf(stderr, "%cq - Quantize (round decimals)\n\n", SW);
 
     fprintf(stderr, "%ci<profile> - Input profile (defaults to sRGB)\n", SW);

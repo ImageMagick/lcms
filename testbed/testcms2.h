@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2014 Marti Maria Saguer
+//  Copyright (c) 1998-2020 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -27,13 +27,16 @@
 #ifndef TESTCMS2_H
 #define TESTCMS2_H
 
+#include "lcms2_internal.h"
+
+// On Visual Studio, use debug CRT
 #ifdef _MSC_VER
-#    define _CRT_SECURE_NO_WARNINGS 1
-#     include "crtdbg.h"
-#     include <io.h>
+#    include "crtdbg.h"
 #endif
 
-#include "lcms2_internal.h"
+#ifdef CMS_IS_WINDOWS_
+#    include <io.h>
+#endif
 
 #define cmsmin(a, b) (((a) < (b)) ? (a) : (b))
 
@@ -73,9 +76,8 @@ cmsInt32Number CheckOptimizationPlugin(void);
 cmsInt32Number CheckIntentPlugin(void);
 cmsInt32Number CheckTransformPlugin(void);
 cmsInt32Number CheckMutexPlugin(void);
+cmsInt32Number CheckMethodPackDoublesFromFloat(void);
 
-
-cmsInt32Number CheckOptimizationPluginLeak(void);
 
 // Zoo
 void CheckProfileZOO(void);
