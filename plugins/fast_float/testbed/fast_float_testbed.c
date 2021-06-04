@@ -28,13 +28,17 @@
 // Some pixel representations
 typedef struct { cmsUInt8Number  r, g, b;    }  Scanline_rgb8bits;
 typedef struct { cmsUInt8Number  r, g, b, a; }  Scanline_rgba8bits;
+typedef struct { cmsUInt8Number  c, m, y, k; }  Scanline_cmyk8bits;
 typedef struct { cmsUInt16Number r, g, b;    }  Scanline_rgb16bits;
 typedef struct { cmsUInt16Number r, g, b, a; }  Scanline_rgba16bits;
+typedef struct { cmsUInt16Number c, m, y, k; }  Scanline_cmyk16bits;
 typedef struct { cmsUInt16Number r, g, b;    }  Scanline_rgb15bits;
 typedef struct { cmsUInt16Number r, g, b, a; }  Scanline_rgba15bits;
 typedef struct { cmsUInt16Number r, g, b, a; }  Scanline_cmyk15bits;
 typedef struct { cmsFloat32Number r, g, b;    }  Scanline_rgbFloat;
 typedef struct { cmsFloat32Number r, g, b, a; }  Scanline_rgbaFloat;
+typedef struct { cmsFloat32Number c, m, y, k; }  Scanline_cmykFloat;
+typedef struct { cmsFloat32Number L, a, b; }     Scanline_LabFloat;
 
 // 15 bit mode. <=> 8 bits mode
 #define FROM_8_TO_15(x8) (cmsUInt16Number) ((((cmsUInt64Number)x8 << 15)) / 0xFF)
@@ -165,7 +169,7 @@ void CheckFormatters15(void)
        C(TYPE_ABGR_15_SE);
        C(TYPE_BGRA_15);
        C(TYPE_BGRA_15_SE);
-       C(TYPE_YMC_15),
+       C(TYPE_YMC_15);
        C(TYPE_CMY_15);
        C(TYPE_CMY_15_PLANAR);
        C(TYPE_CMY_15_SE);
@@ -202,8 +206,6 @@ cmsInt32Number checkSingleComputeIncrements(cmsUInt32Number Format, cmsUInt32Num
 
        nTotal = nAlpha + nChannels;
      
-
-
        for (i = 0; i < nTotal; i++)
        {
               cmsUInt32Number so = va_arg(args, cmsUInt32Number);
@@ -495,7 +497,6 @@ void TryAllValues16bits(cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfileOut,
     cmsDoTransform(xformRaw, bufferIn, bufferRawOut, npixels);
     cmsDoTransform(xformPlugin, bufferIn, bufferPluginOut, npixels);
 
-#if 1
     // Lets compare results
     j = 0;
     for (r = 0; r < 256; r++)
@@ -514,7 +515,6 @@ void TryAllValues16bits(cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfileOut,
 
                 j++;
             }
-#endif
 
     free(bufferIn); free(bufferRawOut);
     free(bufferPluginOut);
@@ -623,7 +623,7 @@ void TryAllValuesFloat(cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfileOut, 
 }
 
 static
-void TryAllValuesFloatAlpha(cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfileOut, cmsInt32Number Intent)
+void TryAllValuesFloatAlpha(cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfileOut, cmsInt32Number Intent, cmsBool copyAlpha)
 {
        cmsContext Raw     = cmsCreateContext(NULL, NULL);
        cmsContext Plugin  = cmsCreateContext(cmsFastFloatExtensions(), NULL);
@@ -636,8 +636,10 @@ void TryAllValuesFloatAlpha(cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfile
        int j;
        cmsUInt32Number npixels = 256 * 256 * 256;
 
-       cmsHTRANSFORM xformRaw = cmsCreateTransformTHR(Raw, hlcmsProfileIn, TYPE_RGBA_FLT, hlcmsProfileOut, TYPE_RGBA_FLT, Intent, cmsFLAGS_NOCACHE);
-       cmsHTRANSFORM xformPlugin = cmsCreateTransformTHR(Plugin, hlcmsProfileIn, TYPE_RGBA_FLT, hlcmsProfileOut, TYPE_RGBA_FLT, Intent, cmsFLAGS_NOCACHE);
+       cmsUInt32Number flags = cmsFLAGS_NOCACHE | ( copyAlpha? cmsFLAGS_COPY_ALPHA : 0);
+
+       cmsHTRANSFORM xformRaw = cmsCreateTransformTHR(Raw, hlcmsProfileIn, TYPE_RGBA_FLT, hlcmsProfileOut, TYPE_RGBA_FLT, Intent, flags);
+       cmsHTRANSFORM xformPlugin = cmsCreateTransformTHR(Plugin, hlcmsProfileIn, TYPE_RGBA_FLT, hlcmsProfileOut, TYPE_RGBA_FLT, Intent, flags);
 
        cmsCloseProfile(hlcmsProfileIn);
        cmsCloseProfile(hlcmsProfileOut);
@@ -651,6 +653,9 @@ void TryAllValuesFloatAlpha(cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfile
        bufferIn = (Scanline_rgbaFloat*)malloc(npixels * sizeof(Scanline_rgbaFloat));
        bufferRawOut = (Scanline_rgbaFloat*)malloc(npixels * sizeof(Scanline_rgbaFloat));
        bufferPluginOut = (Scanline_rgbaFloat*)malloc(npixels * sizeof(Scanline_rgbaFloat));
+
+       memset(bufferRawOut, 0, npixels * sizeof(Scanline_rgbaFloat));
+       memset(bufferPluginOut, 0, npixels * sizeof(Scanline_rgbaFloat));
 
        // Same input to both transforms
        j = 0;
@@ -670,7 +675,6 @@ void TryAllValuesFloatAlpha(cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfile
        cmsDoTransform(xformRaw,    bufferIn, bufferRawOut, npixels);
        cmsDoTransform(xformPlugin, bufferIn, bufferPluginOut, npixels);
 
-#if 1
        // Lets compare results
        j = 0;
        for (r = 0; r < 256; r++)
@@ -678,15 +682,14 @@ void TryAllValuesFloatAlpha(cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfile
                      for (b = 0; b < 256; b++) {
 
               if (!ValidFloat(bufferRawOut[j].r, bufferPluginOut[j].r) ||
-                     !ValidFloat(bufferRawOut[j].g, bufferPluginOut[j].g) ||
-                     !ValidFloat(bufferRawOut[j].b, bufferPluginOut[j].b) ||
-                     !ValidFloat(bufferRawOut[j].a, bufferPluginOut[j].a))
-                     Fail("Conversion failed at (%f %f %f %f) != (%f %f %f %f)", bufferRawOut[j].r, bufferRawOut[j].g, bufferRawOut[j].b, bufferRawOut[j].a,
+                  !ValidFloat(bufferRawOut[j].g, bufferPluginOut[j].g) ||
+                  !ValidFloat(bufferRawOut[j].b, bufferPluginOut[j].b) ||
+                  !ValidFloat(bufferRawOut[j].a, bufferPluginOut[j].a))
+                    Fail("Conversion failed at (%f %f %f %f) != (%f %f %f %f)", bufferRawOut[j].r, bufferRawOut[j].g, bufferRawOut[j].b, bufferRawOut[j].a,
                      bufferPluginOut[j].r, bufferPluginOut[j].g, bufferPluginOut[j].b, bufferPluginOut[j].a);
 
               j++;
               }
-#endif
 
        free(bufferIn); free(bufferRawOut);
        free(bufferPluginOut);
@@ -799,7 +802,6 @@ void CheckChangeFormat(void)
     hsRGB = cmsCreate_sRGBProfile();
     hLab = cmsCreateLab4Profile(NULL);
 
-
     xform = cmsCreateTransform(hsRGB, TYPE_RGB_16, hLab, TYPE_Lab_16, INTENT_PERCEPTUAL, 0);
 
     cmsCloseProfile(hsRGB);
@@ -901,12 +903,17 @@ void CheckLab2Roundtrip(void)
 static
 void CheckConversionFloat(void)
 {
-       printf("Crash test...");
-       TryAllValuesFloatAlpha(cmsOpenProfileFromFile("test5.icc", "r"), cmsOpenProfileFromFile("test0.icc", "r"), INTENT_PERCEPTUAL);
+       printf("Crash test.");
+       TryAllValuesFloatAlpha(cmsOpenProfileFromFile("test5.icc", "r"), cmsOpenProfileFromFile("test0.icc", "r"), INTENT_PERCEPTUAL, FALSE);
+       printf("..");
+       TryAllValuesFloatAlpha(cmsOpenProfileFromFile("test5.icc", "r"), cmsOpenProfileFromFile("test0.icc", "r"), INTENT_PERCEPTUAL, TRUE);
        printf("Ok\n");
 
-       printf("Crash (II) test...");
-       TryAllValuesFloatAlpha(cmsOpenProfileFromFile("test0.icc", "r"), cmsOpenProfileFromFile("test0.icc", "r"), INTENT_PERCEPTUAL);
+
+       printf("Crash (II) test.");
+       TryAllValuesFloatAlpha(cmsOpenProfileFromFile("test0.icc", "r"), cmsOpenProfileFromFile("test0.icc", "r"), INTENT_PERCEPTUAL, FALSE);
+       printf("..");
+       TryAllValuesFloatAlpha(cmsOpenProfileFromFile("test0.icc", "r"), cmsOpenProfileFromFile("test0.icc", "r"), INTENT_PERCEPTUAL, TRUE);
        printf("Ok\n");
 
        // Matrix-shaper should be accurate 
@@ -925,6 +932,85 @@ void CheckConversionFloat(void)
        TryAllValuesFloat(cmsOpenProfileFromFile("test0.icc", "r"), cmsOpenProfileFromFile("test0.icc", "r"), INTENT_PERCEPTUAL);
        printf("Ok\n");
 }
+
+
+static
+cmsBool ValidFloat2(cmsFloat32Number a, cmsFloat32Number b)
+{
+    return fabsf(a - b) < 0.007;
+}
+
+
+static
+cmsFloat32Number distance(cmsFloat32Number rgb1[], cmsFloat32Number rgb2[])
+{
+    cmsFloat32Number dr = rgb2[0] - rgb1[0];
+    cmsFloat32Number dg = rgb2[1] - rgb1[1];
+    cmsFloat32Number db = rgb2[2] - rgb1[2];
+
+    return dr * dr + dg * dg + db * db;
+}
+
+static
+void CheckLab2RGB(void)
+{
+    cmsHPROFILE hLab = cmsCreateLab4Profile(NULL);
+    cmsHPROFILE hRGB = cmsOpenProfileFromFile("test3.icc", "r");
+    cmsContext noPlugin = cmsCreateContext(0, 0);
+
+    cmsHTRANSFORM hXformNoPlugin = cmsCreateTransformTHR(noPlugin, hLab, TYPE_Lab_FLT, hRGB, TYPE_RGB_FLT, INTENT_RELATIVE_COLORIMETRIC, cmsFLAGS_NOCACHE);
+    cmsHTRANSFORM hXformPlugin = cmsCreateTransformTHR(0, hLab, TYPE_Lab_FLT, hRGB, TYPE_RGB_FLT, INTENT_RELATIVE_COLORIMETRIC, cmsFLAGS_NOCACHE);
+
+    cmsFloat32Number Lab[3], RGB[3], RGB2[3];
+
+    cmsFloat32Number maxInside = 0, maxOutside = 0, L, a, b;
+
+    printf("Checking Lab -> RGB...");
+    for (L = 4; L <= 100; L++)
+    {
+        for (a = -30; a < +30; a++)
+            for (b = -30; b < +30; b++)
+            {
+                cmsFloat32Number d;
+
+                Lab[0] = L; Lab[1] = a; Lab[2] = b;
+                cmsDoTransform(hXformNoPlugin, Lab, RGB, 1);
+                cmsDoTransform(hXformPlugin, Lab, RGB2, 1);
+
+                d = distance(RGB, RGB2);
+                if (d > maxInside)
+                    maxInside = d;                   
+            }
+    }
+
+
+    for (L = 1; L <= 100; L += 5)
+    {
+        for (a = -100; a < +100; a += 5)
+            for (b = -100; b < +100; b += 5)
+            {
+                cmsFloat32Number d;
+
+                Lab[0] = L; Lab[1] = a; Lab[2] = b;
+                cmsDoTransform(hXformNoPlugin, Lab, RGB, 1);
+                cmsDoTransform(hXformPlugin, Lab, RGB2, 1);
+
+                d = distance(RGB, RGB2);
+                if (d > maxOutside)
+                    maxOutside = d;
+            }
+
+    }
+
+
+    printf("Max distance: Inside gamut %f, Outside gamut %f\n", sqrtf(maxInside), sqrtf(maxOutside));
+
+    cmsDeleteTransform(hXformNoPlugin);
+    cmsDeleteTransform(hXformPlugin);
+
+    cmsDeleteContext(noPlugin);    
+}
+
 
 
 
@@ -949,23 +1035,41 @@ void PerformanceHeader(void)
        printf("                                  MPixel/sec.   MByte/sec.\n");
 }
 
+
+static
+cmsHPROFILE loadProfile(const char* name)
+{
+    if (*name == '*')
+    {
+        if (strcmp(name, "*lab") == 0)
+        {
+            return cmsCreateLab4Profile(NULL);
+        }
+        else
+            if (strcmp(name, "*xyz") == 0)
+            {
+                return cmsCreateXYZProfile();
+            }
+            else
+                if (strcmp(name, "*curves") == 0)
+                {
+                    return CreateCurves();
+                }
+                else
+                    Fail("Unknown builtin '%s'", name);
+
+    }
+    
+    return cmsOpenProfileFromFile(name, "r");
+}
+
+
 static
 cmsFloat64Number Performance(const char* Title, perf_fn fn, cmsContext ct, const char* inICC, const char* outICC, size_t sz, cmsFloat64Number prev)
 {
-       cmsHPROFILE hlcmsProfileIn;
-       cmsHPROFILE hlcmsProfileOut;
-
-       if (inICC == NULL)
-              hlcmsProfileIn = CreateCurves();
-       else
-              hlcmsProfileIn = cmsOpenProfileFromFile(inICC, "r");
-
-       if (outICC == NULL)
-              hlcmsProfileOut = CreateCurves();
-       else
-              hlcmsProfileOut = cmsOpenProfileFromFile(outICC, "r");
-
-
+       cmsHPROFILE hlcmsProfileIn = loadProfile(inICC);
+       cmsHPROFILE hlcmsProfileOut = loadProfile(outICC);
+                 
        cmsFloat64Number n = fn(ct, hlcmsProfileIn, hlcmsProfileOut);
 
        printf("%-30s: ", Title); fflush(stdout);
@@ -1296,6 +1400,51 @@ cmsFloat64Number SpeedTest16bitsRGB(cmsContext ct, cmsHPROFILE hlcmsProfileIn, c
     return MPixSec(diff);
 }
 
+static
+cmsFloat64Number SpeedTest16bitsCMYK(cmsContext ct, cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfileOut)
+{
+
+    cmsInt32Number r, g, b, j;
+    clock_t atime;
+    cmsFloat64Number diff;
+    cmsHTRANSFORM hlcmsxform;
+    Scanline_cmyk16bits* In;
+    cmsUInt32Number Mb;
+
+    if (hlcmsProfileIn == NULL || hlcmsProfileOut == NULL)
+        Fail("Unable to open profiles");
+
+    hlcmsxform = cmsCreateTransformTHR(ct, hlcmsProfileIn, TYPE_CMYK_16, hlcmsProfileOut, TYPE_CMYK_16, INTENT_PERCEPTUAL, cmsFLAGS_NOCACHE);
+    cmsCloseProfile(hlcmsProfileIn);
+    cmsCloseProfile(hlcmsProfileOut);
+
+    Mb = 256 * 256 * 256 * sizeof(Scanline_cmyk16bits);
+    In = (Scanline_cmyk16bits*)malloc(Mb);
+
+    j = 0;
+    for (r = 0; r < 256; r++)
+        for (g = 0; g < 256; g++)
+            for (b = 0; b < 256; b++) {
+
+                In[j].c = (cmsUInt16Number)r;
+                In[j].m = (cmsUInt16Number)g;
+                In[j].y = (cmsUInt16Number)b;
+                In[j].k = (cmsUInt16Number)r;
+
+                j++;
+            }
+
+    atime = clock();
+
+    cmsDoTransform(hlcmsxform, In, In, 256 * 256 * 256);
+
+    diff = clock() - atime;
+    free(In);
+
+    cmsDeleteTransform(hlcmsxform);
+    return MPixSec(diff);
+}
+
 
 
 static
@@ -1314,7 +1463,7 @@ void SpeedTest8(void)
     t[0] = Performance("8 bits on CLUT profiles  ", SpeedTest8bitsRGB, noPlugin, "test5.icc", "test3.icc", sizeof(Scanline_rgb8bits), 0);
     t[1] = Performance("8 bits on Matrix-Shaper  ", SpeedTest8bitsRGB, noPlugin, "test5.icc", "test0.icc", sizeof(Scanline_rgb8bits), 0);
     t[2] = Performance("8 bits on same MatrixSh  ", SpeedTest8bitsRGB, noPlugin, "test0.icc", "test0.icc", sizeof(Scanline_rgb8bits), 0);
-    t[3] = Performance("8 bits on curves         ", SpeedTest8bitsRGB, noPlugin, NULL, NULL, sizeof(Scanline_rgb8bits), 0);
+    t[3] = Performance("8 bits on curves         ", SpeedTest8bitsRGB, noPlugin, "*curves",   "*curves",   sizeof(Scanline_rgb8bits), 0);
 
     // Note that context 0 has the plug-in installed
 
@@ -1327,97 +1476,272 @@ void SpeedTest8(void)
     Performance("8 bits on CLUT profiles  ", SpeedTest8bitsRGB, 0, "test5.icc", "test3.icc", sizeof(Scanline_rgb8bits), t[0]);
     Performance("8 bits on Matrix-Shaper  ", SpeedTest8bitsRGB, 0, "test5.icc", "test0.icc", sizeof(Scanline_rgb8bits), t[1]);
     Performance("8 bits on same MatrixSh  ", SpeedTest8bitsRGB, 0, "test0.icc", "test0.icc", sizeof(Scanline_rgb8bits), t[2]);
-    Performance("8 bits on curves         ", SpeedTest8bitsRGB, 0, NULL, NULL, sizeof(Scanline_rgb8bits), t[3]);
+    Performance("8 bits on curves         ", SpeedTest8bitsRGB, 0, "*curves",   "*curves",   sizeof(Scanline_rgb8bits), t[3]);
 
     cmsDeleteContext(noPlugin);
 }
 
-#if 0
-static
-void SpeedTest8(void)
-{
-       printf("\n\nP E R F O R M A N C E   T E S T S   8  B I T S\n");
-       printf(    "==============================================\n\n");
-
-       PerformanceHeader();
-       Performance("8 bits on CLUT profiles         ", SpeedTest8bitsRGB, 0, "test5.icc", "test3.icc", sizeof(Scanline_rgb8bits), 0);
-       Performance("8 bits on Matrix-Shaper profiles", SpeedTest8bitsRGB, 0, "test5.icc", "test0.icc", sizeof(Scanline_rgb8bits), 0);
-       Performance("8 bits on same Matrix-Shaper    ", SpeedTest8bitsRGB, 0, "test0.icc", "test0.icc", sizeof(Scanline_rgb8bits), 0);
-       Performance("8 bits on curves                ", SpeedTest8bitsRGB, 0, NULL, NULL, sizeof(Scanline_rgb8bits), 0);
-       
-}
-#endif
-
-
 static
 void SpeedTest15(void)
 {
-       printf("\n\nP E R F O R M A N C E   T E S T S   1 5  B I T S\n");
-       printf(    "================================================\n\n");
+       printf("\n\nP E R F O R M A N C E   T E S T S   1 5  B I T S  (P L U G I N)\n");
+       printf(    "===============================================================\n\n");
        
        PerformanceHeader();
-       Performance("15 bits on CLUT profiles         ", SpeedTest15bitsRGB, 0, "test5.icc", "test3.icc", sizeof(Scanline_rgb15bits), 0);
-       Performance("15 bits on Matrix-Shaper profiles", SpeedTest15bitsRGB, 0, "test5.icc", "test0.icc", sizeof(Scanline_rgb15bits), 0);
-       Performance("15 bits on same Matrix-Shaper    ", SpeedTest15bitsRGB, 0, "test0.icc", "test0.icc", sizeof(Scanline_rgb15bits), 0);
-       Performance("15 bits on curves                ", SpeedTest15bitsRGB, 0, NULL, NULL, sizeof(Scanline_rgb15bits), 0);
+       Performance("15 bits on CLUT profiles         ", SpeedTest15bitsRGB, 0, "test5.icc", "test3.icc",  sizeof(Scanline_rgb15bits), 0);
+       Performance("15 bits on Matrix-Shaper profiles", SpeedTest15bitsRGB, 0, "test5.icc", "test0.icc",  sizeof(Scanline_rgb15bits), 0);
+       Performance("15 bits on same Matrix-Shaper    ", SpeedTest15bitsRGB, 0, "test0.icc", "test0.icc",  sizeof(Scanline_rgb15bits), 0);
+       Performance("15 bits on curves                ", SpeedTest15bitsRGB, 0, "*curves",   "*curves",    sizeof(Scanline_rgb15bits), 0);
        Performance("15 bits on CMYK CLUT profiles    ", SpeedTest15bitsCMYK, 0, "test1.icc", "test2.icc", sizeof(Scanline_rgba15bits), 0);
 }
 
 static
 void SpeedTest16(void)
 {
-    printf("\n\nP E R F O R M A N C E   T E S T S   1 6  B I T S\n");
-    printf("================================================\n\n");
+    cmsContext noPlugin = cmsCreateContext(0, 0);
+
+
+    printf("\n\n");
+    printf("P E R F O R M A N C E   T E S T S   1 6  B I T S  (D E F A U L T)\n");
+    printf("=================================================================\n\n");
+    
+    PerformanceHeader();
+    Performance("16 bits on CLUT profiles         ", SpeedTest16bitsRGB,  noPlugin, "test5.icc", "test3.icc",  sizeof(Scanline_rgb16bits), 0);
+    Performance("16 bits on Matrix-Shaper profiles", SpeedTest16bitsRGB,  noPlugin, "test5.icc", "test0.icc",  sizeof(Scanline_rgb16bits), 0);
+    Performance("16 bits on same Matrix-Shaper    ", SpeedTest16bitsRGB,  noPlugin, "test0.icc", "test0.icc",  sizeof(Scanline_rgb16bits), 0);
+    Performance("16 bits on curves                ", SpeedTest16bitsRGB,  noPlugin, "*curves",   "*curves",    sizeof(Scanline_rgb16bits), 0);
+    Performance("16 bits on CMYK CLUT profiles    ", SpeedTest16bitsCMYK, noPlugin, "test1.icc", "test2.icc",  sizeof(Scanline_cmyk16bits), 0);
+    
+    printf("\n\n");
+    printf("P E R F O R M A N C E   T E S T S   1 6  B I T S  (P L U G I N)\n");
+    printf("===============================================================\n\n");
 
     PerformanceHeader();
-    Performance("16 bits on CLUT profiles         ", SpeedTest16bitsRGB, 0, "test5.icc", "test3.icc", sizeof(Scanline_rgb15bits), 0);
-    
+    Performance("16 bits on CLUT profiles         ", SpeedTest16bitsRGB,  0, "test5.icc", "test3.icc", sizeof(Scanline_rgb16bits), 0);
+    Performance("16 bits on Matrix-Shaper profiles", SpeedTest16bitsRGB,  0, "test5.icc", "test0.icc", sizeof(Scanline_rgb16bits), 0);
+    Performance("16 bits on same Matrix-Shaper    ", SpeedTest16bitsRGB,  0, "test0.icc", "test0.icc", sizeof(Scanline_rgb16bits), 0);
+    Performance("16 bits on curves                ", SpeedTest16bitsRGB,  0, "*curves",   "*curves",   sizeof(Scanline_rgb16bits), 0);
+    Performance("16 bits on CMYK CLUT profiles    ", SpeedTest16bitsCMYK, 0, "test1.icc", "test2.icc", sizeof(Scanline_cmyk16bits), 0);
 }
 
 // The worst case is used, no cache and all rgb combinations
 static
 cmsFloat64Number SpeedTestFloatRGB(cmsContext ct, cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfileOut)
 {
-       cmsInt32Number r, g, b, j;
+       cmsInt32Number j;
        clock_t atime;
        cmsFloat64Number diff;
        cmsHTRANSFORM hlcmsxform;
-       Scanline_rgbFloat *In;
-       cmsUInt32Number Mb;
+       void *In;
+       cmsUInt32Number size, Mb;
+       cmsUInt32Number inFormatter=0, outFormatter=0;
+       cmsFloat64Number seconds;
 
        if (hlcmsProfileIn == NULL || hlcmsProfileOut == NULL)
-              Fail("Unable to open profiles");
+           Fail("Unable to open profiles");
 
-       hlcmsxform = cmsCreateTransformTHR(ct, hlcmsProfileIn, TYPE_RGB_FLT, hlcmsProfileOut, TYPE_RGB_FLT, INTENT_PERCEPTUAL, cmsFLAGS_NOCACHE);
+
+       switch (cmsGetColorSpace(hlcmsProfileIn))
+       {
+       case cmsSigRgbData: inFormatter = TYPE_RGB_FLT; break;
+       case cmsSigLabData: inFormatter = TYPE_Lab_FLT; break;
+       
+       default:
+           Fail("Invalid colorspace");
+       }
+
+       switch (cmsGetColorSpace(hlcmsProfileOut))
+       {
+       case cmsSigRgbData:  outFormatter = TYPE_RGB_FLT; break;
+       case cmsSigLabData:  outFormatter = TYPE_Lab_FLT; break;
+       case cmsSigXYZData:  outFormatter = TYPE_XYZ_FLT; break;
+
+       default:
+           Fail("Invalid colorspace");
+       }
+
+       hlcmsxform = cmsCreateTransformTHR(ct, hlcmsProfileIn, inFormatter, hlcmsProfileOut, outFormatter, INTENT_PERCEPTUAL, cmsFLAGS_NOCACHE);
        cmsCloseProfile(hlcmsProfileIn);
        cmsCloseProfile(hlcmsProfileOut);
 
-       Mb = 256 * 256 * 256 * sizeof(Scanline_rgbFloat);
-       In = (Scanline_rgbFloat*)malloc(Mb);
+ 
 
        j = 0;
-       for (r = 0; r < 256; r++)
-              for (g = 0; g < 256; g++)
-                     for (b = 0; b < 256; b++) {
 
-              In[j].r = (cmsFloat32Number)r / 255.0f;
-              In[j].g = (cmsFloat32Number)g / 255.0f;
-              In[j].b = (cmsFloat32Number)b / 255.0f;
+       if (inFormatter == TYPE_RGB_FLT)
+       {
+           cmsInt32Number r, g, b;
+           Scanline_rgbFloat* fill;
+           
+           size = 256 * 256 * 256;
+           Mb = size * sizeof(Scanline_rgbFloat);
+           In = malloc(Mb);
+           fill = (Scanline_rgbFloat*)In;
 
-              j++;
-                     }
-      
+           for (r = 0; r < 256; r++)
+               for (g = 0; g < 256; g++)
+                   for (b = 0; b < 256; b++) {
+
+                       fill[j].r = (cmsFloat32Number)r / 255.0f;
+                       fill[j].g = (cmsFloat32Number)g / 255.0f;
+                       fill[j].b = (cmsFloat32Number)b / 255.0f;
+
+                       j++;
+                   }
+
+       }
+       else
+       {
+           cmsFloat32Number L, a, b;
+           Scanline_LabFloat* fill;
+
+           size = 100 * 256 * 256;
+           Mb =  size * sizeof(Scanline_LabFloat);
+           In = malloc(Mb);
+           fill = (Scanline_LabFloat*)In;
+
+           for (L = 0; L < 100; L++)
+               for (a = -127.0; a < 127.0; a++)
+                   for (b = -127.0; b < +127.0; b++) {
+
+                       fill[j].L = L;
+                       fill[j].a = a;
+                       fill[j].b = b;
+
+                       j++;
+                   }
+       }
+
        atime = clock();
 
-       cmsDoTransform(hlcmsxform, In, In, 256 * 256 * 256);
+       cmsDoTransform(hlcmsxform, In, In, size);
 
        diff = clock() - atime;
        free(In);
-      
+
        cmsDeleteTransform(hlcmsxform);
-       return MPixSec(diff);
+       
+       seconds = (cmsFloat64Number)diff / (cmsFloat64Number)CLOCKS_PER_SEC;
+       return ((cmsFloat64Number)size) / (1024.0 * 1024.0 * seconds);       
 }
 
+
+static
+cmsFloat64Number SpeedTestFloatCMYK(cmsContext ct, cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfileOut)
+{
+    cmsInt32Number c, m, y, k, j;
+    clock_t atime;
+    cmsFloat64Number diff;
+    cmsHTRANSFORM hlcmsxform;
+    Scanline_cmykFloat* In;
+    cmsUInt32Number Mb;
+    
+    if (hlcmsProfileIn == NULL || hlcmsProfileOut == NULL)
+        Fail("Unable to open profiles");
+
+    
+    hlcmsxform = cmsCreateTransformTHR(ct, hlcmsProfileIn, TYPE_CMYK_FLT, hlcmsProfileOut, TYPE_CMYK_FLT, INTENT_PERCEPTUAL, cmsFLAGS_NOCACHE);
+    cmsCloseProfile(hlcmsProfileIn);
+    cmsCloseProfile(hlcmsProfileOut);
+
+    Mb = 64 * 64 * 64 * 64 * sizeof(Scanline_cmykFloat);
+    In = (Scanline_cmykFloat*)malloc(Mb);
+
+    j = 0;
+    for (c = 0; c < 256; c += 4)
+        for (m = 0; m < 256; m += 4)
+            for (y = 0; y < 256; y += 4)
+                for (k = 0; k < 256; k += 4) {
+
+                In[j].c = (cmsFloat32Number)c / 255.0f;
+                In[j].m = (cmsFloat32Number)m / 255.0f;
+                In[j].y = (cmsFloat32Number)y / 255.0f;
+                In[j].k = (cmsFloat32Number)k / 255.0f;
+
+                j++;
+            }
+
+    atime = clock();
+
+    cmsDoTransform(hlcmsxform, In, In, 64 * 64 * 64 * 64);
+
+    diff = clock() - atime;
+    free(In);
+
+    cmsDeleteTransform(hlcmsxform);
+    return MPixSec(diff);
+}
+
+
+static
+cmsFloat64Number SpeedTestFloatLab(cmsContext ct, cmsHPROFILE hlcmsProfileIn, cmsHPROFILE hlcmsProfileOut)
+{
+    cmsInt32Number j;
+    clock_t atime;
+    cmsFloat64Number diff;
+    cmsHTRANSFORM hlcmsxform;
+    void* In;
+    cmsUInt32Number size, Mb;
+    cmsUInt32Number  outFormatter = 0;
+    cmsFloat64Number seconds;
+    cmsFloat32Number L, a, b;
+    Scanline_LabFloat* fill;
+
+
+    if (hlcmsProfileIn == NULL || hlcmsProfileOut == NULL)
+        Fail("Unable to open profiles");
+
+
+    if (cmsGetColorSpace(hlcmsProfileIn) != cmsSigLabData)
+    {
+        Fail("Invalid colorspace");
+    }
+
+    switch (cmsGetColorSpace(hlcmsProfileOut))
+    {
+    case cmsSigRgbData:  outFormatter = TYPE_RGB_FLT; break;
+    case cmsSigLabData:  outFormatter = TYPE_Lab_FLT; break;
+    case cmsSigXYZData:  outFormatter = TYPE_XYZ_FLT; break;
+
+    default:
+        Fail("Invalid colorspace");
+    }
+
+    hlcmsxform = cmsCreateTransformTHR(ct, hlcmsProfileIn, TYPE_Lab_FLT, hlcmsProfileOut, outFormatter, INTENT_PERCEPTUAL, cmsFLAGS_NOCACHE);
+    cmsCloseProfile(hlcmsProfileIn);
+    cmsCloseProfile(hlcmsProfileOut);
+
+    j = 0;
+
+    size = 100 * 256 * 256;
+    Mb = size * sizeof(Scanline_LabFloat);
+    In = malloc(Mb);
+    fill = (Scanline_LabFloat*)In;
+
+    for (L = 0; L < 100; L++)
+        for (a = -127.0; a < 127.0; a++)
+            for (b = -127.0; b < +127.0; b++) {
+
+                fill[j].L = L;
+                fill[j].a = a;
+                fill[j].b = b;
+
+                j++;
+            }
+    
+
+    atime = clock();
+
+    cmsDoTransform(hlcmsxform, In, In, size);
+
+    diff = clock() - atime;
+    free(In);
+
+    cmsDeleteTransform(hlcmsxform);
+
+    seconds = (cmsFloat64Number)diff / (cmsFloat64Number)CLOCKS_PER_SEC;
+    return ((cmsFloat64Number)size) / (1024.0 * 1024.0 * seconds);
+}
 
 
 
@@ -1426,7 +1750,7 @@ void SpeedTestFloat(void)
 {
        cmsContext noPlugin = cmsCreateContext(0, 0);
        
-       cmsFloat64Number t[10];
+       cmsFloat64Number t[10] = { 0 };
 
        printf("\n\n");
        printf("P E R F O R M A N C E   T E S T S   F L O A T  (D E F A U L T)\n");
@@ -1437,7 +1761,12 @@ void SpeedTestFloat(void)
        t[0] = Performance("Floating point on CLUT profiles  ", SpeedTestFloatRGB, noPlugin, "test5.icc", "test3.icc", sizeof(Scanline_rgbFloat), 0);
        t[1] = Performance("Floating point on Matrix-Shaper  ", SpeedTestFloatRGB, noPlugin, "test5.icc", "test0.icc", sizeof(Scanline_rgbFloat), 0);
        t[2] = Performance("Floating point on same MatrixSh  ", SpeedTestFloatRGB, noPlugin, "test0.icc", "test0.icc", sizeof(Scanline_rgbFloat), 0);
-       t[3] = Performance("Floating point on curves         ", SpeedTestFloatRGB, noPlugin, NULL, NULL, sizeof(Scanline_rgbFloat), 0);
+       t[3] = Performance("Floating point on curves         ", SpeedTestFloatRGB, noPlugin, "*curves", "*curves",     sizeof(Scanline_rgbFloat), 0);
+       t[4] = Performance("Floating point on RGB->Lab       ", SpeedTestFloatRGB, noPlugin, "test5.icc", "*lab",      sizeof(Scanline_rgbFloat), 0);
+       t[5] = Performance("Floating point on RGB->XYZ       ", SpeedTestFloatRGB, noPlugin, "test3.icc", "*xyz",      sizeof(Scanline_rgbFloat), 0);
+       t[6] = Performance("Floating point on CMYK->CMYK     ", SpeedTestFloatCMYK, noPlugin, "test1.icc", "test2.icc",sizeof(Scanline_cmykFloat), 0);
+       t[7] = Performance("Floating point on Lab->RGB       ", SpeedTestFloatLab,  noPlugin, "*lab",     "test3.icc", sizeof(Scanline_LabFloat), 0);
+
 
        // Note that context 0 has the plug-in installed
 
@@ -1450,14 +1779,14 @@ void SpeedTestFloat(void)
        Performance("Floating point on CLUT profiles  ", SpeedTestFloatRGB, 0, "test5.icc", "test3.icc", sizeof(Scanline_rgbFloat), t[0]);
        Performance("Floating point on Matrix-Shaper  ", SpeedTestFloatRGB, 0, "test5.icc", "test0.icc", sizeof(Scanline_rgbFloat), t[1]);
        Performance("Floating point on same MatrixSh  ", SpeedTestFloatRGB, 0, "test0.icc", "test0.icc", sizeof(Scanline_rgbFloat), t[2]);
-       Performance("Floating point on curves         ", SpeedTestFloatRGB, 0, NULL, NULL, sizeof(Scanline_rgbFloat), t[3]);
+       Performance("Floating point on curves         ", SpeedTestFloatRGB, 0, "*curves", "*curves",     sizeof(Scanline_rgbFloat), t[3]);
+       Performance("Floating point on RGB->Lab       ", SpeedTestFloatRGB, 0, "test5.icc", "*lab",      sizeof(Scanline_rgbFloat), t[4]);
+       Performance("Floating point on RGB->XYZ       ", SpeedTestFloatRGB, 0, "test3.icc", "*xyz",      sizeof(Scanline_rgbFloat), t[5]);
+       Performance("Floating point on CMYK->CMYK     ", SpeedTestFloatCMYK, 0, "test1.icc", "test2.icc", sizeof(Scanline_cmykFloat), t[6]);
+       Performance("Floating point on Lab->RGB       ", SpeedTestFloatLab,  0, "*lab",      "test3.icc", sizeof(Scanline_LabFloat), t[7]);
 
        cmsDeleteContext(noPlugin);
 }
-
-
-
-
 
 
 static
@@ -1729,7 +2058,7 @@ void TestGrayTransformPerformance()
 
        pixels = 256 * 256 * 256;
        Mb = pixels* 2*sizeof(float);
-       In = malloc(Mb);
+       In = (float*) malloc(Mb);
 
        for (j = 0; j < pixels*2; j++)
               In[j] = (j % 256) / 255.0f;
@@ -1779,7 +2108,7 @@ void TestGrayTransformPerformance1()
 
        pixels = 256 * 256 * 256;
        Mb = pixels* sizeof(float);
-       In = malloc(Mb);
+       In = (float*) malloc(Mb);
 
        for (j = 0; j < pixels; j++)
               In[j] = (j % 256) / 255.0f;
@@ -1799,7 +2128,7 @@ void TestGrayTransformPerformance1()
 // The harness test
 int main()
 {
-       printf("FastFloating point extensions testbed - 1.2\n");
+       printf("FastFloating point extensions testbed - 1.3\n");
        printf("Copyright (c) 1998-2020 Marti Maria Saguer, all rights reserved\n");
        
        printf("\nInstalling error logger ... ");
@@ -1809,8 +2138,8 @@ int main()
        printf("Installing plug-in ... ");
        cmsPlugin(cmsFastFloatExtensions());
        printf("done.\n\n");
-              
-
+       
+       
        CheckComputeIncrements();
 
        // 15 bit functionality
@@ -1819,6 +2148,9 @@ int main()
  
        // 16 bits functionality
        CheckAccuracy16Bits();
+
+       // Lab to whatever
+       CheckLab2RGB();
 
        // Change format
        CheckChangeFormat();
@@ -1831,7 +2163,6 @@ int main()
        SpeedTest16();
        SpeedTest15();
        SpeedTestFloat();
-
      
        ComparativeFloatVs16bits();
        ComparativeLineStride8bits();

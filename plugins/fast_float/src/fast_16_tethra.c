@@ -22,7 +22,7 @@
 #include "fast_float_internal.h"
 
 // lcms internal
-cmsBool  _cmsOptimizePipeline(cmsContext ContextID,
+CMSAPI cmsBool  CMSEXPORT _cmsOptimizePipeline(cmsContext ContextID,
                               cmsPipeline** Lut,
                               cmsUInt32Number  Intent,
                               cmsUInt32Number* InputFormat,
@@ -116,12 +116,15 @@ void PerformanceEval16(struct _cmstransform_struct *CMMcargo,
           
        cmsUInt32Number dwInFormat = cmsGetTransformInputFormat((cmsHTRANSFORM)CMMcargo);
        cmsUInt32Number dwOutFormat = cmsGetTransformOutputFormat((cmsHTRANSFORM)CMMcargo);
-
+       
        _cmsComputeComponentIncrements(dwInFormat, Stride->BytesPerPlaneIn, NULL, &nalpha, SourceStartingOrder, SourceIncrements);
        _cmsComputeComponentIncrements(dwOutFormat, Stride->BytesPerPlaneOut, NULL, &nalpha, DestStartingOrder, DestIncrements);
 
        in16  = (T_BYTES(dwInFormat) == 2);
        out16 = (T_BYTES(dwOutFormat) == 2);
+
+       if (!(_cmsGetTransformFlags((cmsHTRANSFORM)CMMcargo) & cmsFLAGS_COPY_ALPHA))
+           nalpha = 0;
 
        strideIn = strideOut = 0;
        for (i = 0; i < LineCount; i++) {
@@ -306,7 +309,7 @@ void PerformanceEval16(struct _cmstransform_struct *CMMcargo,
 
 // --------------------------------------------------------------------------------------------------------------
 
-cmsBool Optimize16BitRGBTransform(_cmsTransformFn* TransformFn,
+cmsBool Optimize16BitRGBTransform(_cmsTransform2Fn* TransformFn,
                                   void** UserData,
                                   _cmsFreeUserDataFn* FreeDataFn,
                                   cmsPipeline** Lut, 
@@ -334,9 +337,23 @@ cmsBool Optimize16BitRGBTransform(_cmsTransformFn* TransformFn,
     // Only real 16 bits
     if (T_BIT15(*InputFormat) != 0 || T_BIT15(*OutputFormat) != 0) return FALSE;
 
+	// Swap endian is not supported
+    if (T_ENDIAN16(*InputFormat) != 0 || T_ENDIAN16(*OutputFormat) != 0) return FALSE;
+
     // Only on input RGB
     if (T_COLORSPACE(*InputFormat)  != PT_RGB) return FALSE;
     
+
+    // If this is a matrix-shaper, the default does already a good job
+    if (cmsPipelineCheckAndRetreiveStages(*Lut, 4,
+        cmsSigCurveSetElemType, cmsSigMatrixElemType, cmsSigMatrixElemType, cmsSigCurveSetElemType,
+        NULL, NULL, NULL, NULL)) return FALSE;
+
+    if (cmsPipelineCheckAndRetreiveStages(*Lut, 2,
+        cmsSigCurveSetElemType, cmsSigCurveSetElemType,
+        NULL, NULL)) return FALSE;
+
+
    // Named color pipelines cannot be optimized either
    for (mpe = cmsPipelineGetPtrToFirstStage(*Lut);
          mpe != NULL;
@@ -362,7 +379,7 @@ cmsBool Optimize16BitRGBTransform(_cmsTransformFn* TransformFn,
     p16 = Performance16alloc(ContextID, data->Params);
     if (p16 == NULL) return FALSE;
 
-    *TransformFn = (_cmsTransformFn) PerformanceEval16;
+    *TransformFn = PerformanceEval16;
     *UserData   = p16;
     *FreeDataFn = Performance16free;
     *InputFormat  |= 0x02000000;

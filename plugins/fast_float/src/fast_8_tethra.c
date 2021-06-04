@@ -148,9 +148,11 @@ void PerformanceEval8(struct _cmstransform_struct *CMMcargo,
 
        cmsUInt32Number nalpha, strideIn, strideOut;
 
-
        _cmsComputeComponentIncrements(cmsGetTransformInputFormat((cmsHTRANSFORM)CMMcargo), Stride->BytesPerPlaneIn, NULL, &nalpha, SourceStartingOrder, SourceIncrements);
        _cmsComputeComponentIncrements(cmsGetTransformOutputFormat((cmsHTRANSFORM)CMMcargo), Stride->BytesPerPlaneOut, NULL, &nalpha, DestStartingOrder, DestIncrements);
+
+       if (!(_cmsGetTransformFlags((cmsHTRANSFORM)CMMcargo) & cmsFLAGS_COPY_ALPHA))
+           nalpha = 0;
 
        strideIn = strideOut = 0;
        for (i = 0; i < LineCount; i++) {
@@ -326,7 +328,7 @@ void SlopeLimiting(cmsUInt16Number* Table16, int nEntries)
 
 // --------------------------------------------------------------------------------------------------------------
 
-cmsBool Optimize8BitRGBTransform(_cmsTransformFn* TransformFn,
+cmsBool Optimize8BitRGBTransform(_cmsTransform2Fn* TransformFn,
                                   void** UserData,
                                   _cmsFreeUserDataFn* FreeDataFn,
                                   cmsPipeline** Lut, 
@@ -339,10 +341,9 @@ cmsBool Optimize8BitRGBTransform(_cmsTransformFn* TransformFn,
     cmsToneCurve *Trans[cmsMAXCHANNELS], *TransReverse[cmsMAXCHANNELS];
     cmsUInt32Number t, i, j;  
     cmsFloat32Number v, In[cmsMAXCHANNELS], Out[cmsMAXCHANNELS];
-    cmsBool lIsSuitable, lIsLinear;
+    cmsBool lIsSuitable;
     cmsPipeline* OptimizedLUT = NULL, *LutPlusCurves = NULL;    
     cmsStage* OptimizedCLUTmpe;
-    cmsColorSpaceSignature OutputColorSpace;
     cmsStage* OptimizedPrelinMpe;
     cmsStage* mpe;
     Performance8Data* p8;
@@ -372,7 +373,6 @@ cmsBool Optimize8BitRGBTransform(_cmsTransformFn* TransformFn,
     }
 
     ContextID = cmsGetPipelineContextID(OriginalLut);
-    OutputColorSpace = _cmsICCcolorSpace(T_COLORSPACE(*OutputFormat));
     nGridPoints      = _cmsReasonableGridpointsByColorspace(cmsSigRgbData, *dwFlags);
 
     // Empty gamma containers
@@ -415,12 +415,7 @@ cmsBool Optimize8BitRGBTransform(_cmsTransformFn* TransformFn,
 
     // Check for validity
     lIsSuitable = TRUE;
-    lIsLinear   = TRUE;
     for (t=0; (lIsSuitable && (t < 3)); t++) {
-
-        // Exclude if already linear
-        if (!cmsIsToneCurveLinear(Trans[t]))
-            lIsLinear = FALSE;
 
         // Exclude if non-monotonic
         if (!cmsIsToneCurveMonotonic(Trans[t]))
@@ -483,7 +478,7 @@ cmsBool Optimize8BitRGBTransform(_cmsTransformFn* TransformFn,
 
     *dwFlags &= ~cmsFLAGS_CAN_CHANGE_FORMATTER;
     *Lut = OptimizedLUT;
-    *TransformFn = (_cmsTransformFn) PerformanceEval8;
+    *TransformFn = PerformanceEval8;
     *UserData   = p8;
     *FreeDataFn = Performance8free;
 
