@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System, fast floating point extensions
-//  Copyright (c) 1998-2020 Marti Maria Saguer, all rights reserved
+//  Copyright (c) 1998-2022 Marti Maria Saguer, all rights reserved
 //
 //
 // This program is free software: you can redistribute it and/or modify
@@ -292,7 +292,8 @@ void PerformanceEval16(struct _cmstransform_struct *CMMcargo,
                   if (ain)
                   {
                       res16 = *(const cmsUInt16Number*)ain;
-                      TO_OUTPUT(out[OutChan], res16);
+                      TO_OUTPUT(out[TotalOut], res16);
+                      ain += SourceIncrements[3];
                       out[TotalOut] += DestIncrements[TotalOut];
                   }
 
@@ -317,7 +318,6 @@ cmsBool Optimize16BitRGBTransform(_cmsTransform2Fn* TransformFn,
                                   cmsUInt32Number* OutputFormat, 
                                   cmsUInt32Number* dwFlags)      
 {
-    cmsStage* mpe;
     Performance16Data* p16;
     cmsContext ContextID;
     _cmsStageCLutData* data;
@@ -328,7 +328,7 @@ cmsBool Optimize16BitRGBTransform(_cmsTransform2Fn* TransformFn,
     // For empty transforms, do nothing
     if (*Lut == NULL) return FALSE;
 
-    // This is a loosy optimization! does not apply in floating-point cases
+    // This is a lossy optimization! does not apply in floating-point cases
     if (T_FLOAT(*InputFormat) || T_FLOAT(*OutputFormat)) return FALSE;
 
     // Only on 16-bit
@@ -353,14 +353,7 @@ cmsBool Optimize16BitRGBTransform(_cmsTransform2Fn* TransformFn,
         cmsSigCurveSetElemType, cmsSigCurveSetElemType,
         NULL, NULL)) return FALSE;
 
-
-   // Named color pipelines cannot be optimized either
-   for (mpe = cmsPipelineGetPtrToFirstStage(*Lut);
-         mpe != NULL;
-         mpe = cmsStageNext(mpe)) {
-            if (cmsStageType(mpe) == cmsSigNamedColorElemType) return FALSE;
-    }
-
+   
     ContextID = cmsGetPipelineContextID(*Lut);
     newFlags = *dwFlags | cmsFLAGS_FORCE_CLUT;
 

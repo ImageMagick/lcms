@@ -3,7 +3,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2014 Marti Maria Saguer
+//  Copyright (c) 1998-2021 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -25,7 +25,7 @@
 //
 //---------------------------------------------------------------------------------
 //
-// Version 2.6
+// Version 2.13 - unmantained
 //
 
 UNIT lcms2dll;
@@ -45,7 +45,7 @@ INTERFACE
 
  CONST
 
-  LCMS2_SO = {$IFDEF DARWIN} 'liblcms2.2.dylib'; {$ELSE} 'lcms2.dll'; {$ENDIF}
+  LCMS2_SO = {$IFDEF DARWIN} 'liblcms2.13.dylib'; {$ELSE} 'lcms2.dll'; {$ENDIF}
 
  TYPE
 
@@ -1449,7 +1449,7 @@ cmsFLAGS_SOFTPROOFING             = $4000;    // Do softproofing
 cmsFLAGS_BLACKPOINTCOMPENSATION   = $2000;
 cmsFLAGS_NOWHITEONWHITEFIXUP      = $0004;    // Don't fix scum dot
 cmsFLAGS_HIGHRESPRECALC           = $0400;    // Use more memory to give better accuracy
-cmsFLAGS_LOWRESPRECALC            = $0800;    // Use less memory to minimize resouces
+cmsFLAGS_LOWRESPRECALC            = $0800;    // Use less memory to minimize resources
 
 // For devicelink creation
 cmsFLAGS_8BITS_DEVICELINK         = $0008;   // Create 8 bits devicelinks
@@ -1658,6 +1658,9 @@ FUNCTION cmsDetectDestinationBlackPoint( BlackPoint: LPcmsCIEXYZ; hProfile: cmsH
 
 // Estimate total area coverage
 FUNCTION cmsDetectTAC(hProfile: cmsHPROFILE): cmsFloat64Number; StdCall;
+
+// Estimate profile gamma
+FUNCTION cmsDetectRGBProfileGamma(hProfile: cmsHPROFILE): cmsFloat64Number; StdCall;
 
 
 // Poor man's gamut mapping

@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System, fast floating point extensions
-//  Copyright (c) 1998-2020 Marti Maria Saguer, all rights reserved
+//  Copyright (c) 1998-2022 Marti Maria Saguer, all rights reserved
 //
 //
 // This program is free software: you can redistribute it and/or modify
@@ -144,6 +144,18 @@ int XFormSampler(CMSREGISTER const cmsFloat32Number In[], CMSREGISTER cmsFloat32
     return TRUE;
 }
 
+
+// To prevent out of bounds indexing
+cmsINLINE cmsFloat32Number fclamp128(cmsFloat32Number v)
+{
+    return ((v < -128) || isnan(v)) ? -128.0f : (v > 128.0f ? 128.0f : v);
+}
+
+cmsINLINE cmsFloat32Number fclamp100(cmsFloat32Number v)
+{
+    return ((v < 1.0e-9f) || isnan(v)) ? 0.0f : (v > 100.0f ? 100.0f : v);
+}
+
 // A optimized interpolation for Lab.
 #define DENS(i,j,k) (LutTable[(i)+(j)+(k)+OutChan])
 
@@ -215,9 +227,10 @@ void LabCLUTEval(struct _cmstransform_struct* CMMcargo,
         for (ii = 0; ii < PixelsPerLine; ii++) {
 
             // Decode Lab and go across sigmoids on a*/b*
-            l = fclamp((*(cmsFloat32Number*)lin) / 100.0f);
-            a = LinLerp1D(((*(cmsFloat32Number*)ain) + 128.0f) / 255.0f, pfloat->sigmoidIn);
-            b = LinLerp1D(((*(cmsFloat32Number*)bin) + 128.0f) / 255.0f, pfloat->sigmoidIn);
+            l = fclamp100( *(cmsFloat32Number*)lin ) / 100.0f;
+
+            a = LinLerp1D((( fclamp128( *(cmsFloat32Number*)ain)) + 128.0f) / 255.0f, pfloat->sigmoidIn);
+            b = LinLerp1D((( fclamp128( *(cmsFloat32Number*)bin)) + 128.0f) / 255.0f, pfloat->sigmoidIn);
 
             lin += SourceIncrements[0];
             ain += SourceIncrements[1];
@@ -303,7 +316,11 @@ void LabCLUTEval(struct _cmstransform_struct* CMMcargo,
             }
 
             if (xin)
-                *out[TotalOut] = *xin;
+            {
+                *(cmsFloat32Number*) (out[TotalOut]) = *(cmsFloat32Number*)xin;
+                xin += SourceIncrements[3];
+                out[TotalOut] += DestIncrements[TotalOut];
+            }
         }
 
         strideIn  += Stride->BytesPerLineIn;
@@ -353,7 +370,6 @@ cmsBool OptimizeCLUTLabTransform(_cmsTransform2Fn* TransformFn,
     int nGridPoints;    
     cmsPipeline* OptimizedLUT = NULL;    
     cmsStage* OptimizedCLUTmpe;
-    cmsStage* mpe;
     LabCLUTdata* pfloat;
     cmsContext ContextID;
     _cmsStageCLutData* data;
@@ -373,14 +389,7 @@ cmsBool OptimizeCLUTLabTransform(_cmsTransform2Fn* TransformFn,
     if (T_COLORSPACE(*InputFormat) != PT_Lab) return FALSE;
 
     OriginalLut = *Lut;
-
-    // Named color pipelines cannot be optimized either
-    for (mpe = cmsPipelineGetPtrToFirstStage(OriginalLut);
-        mpe != NULL;
-        mpe = cmsStageNext(mpe)) {
-        if (cmsStageType(mpe) == cmsSigNamedColorElemType) return FALSE;
-    }
-
+    
     ContextID = cmsGetPipelineContextID(OriginalLut);
     nGridPoints = GetGridpoints(*dwFlags);
              

@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System, fast floating point extensions
-//  Copyright (c) 1998-2020 Marti Maria Saguer, all rights reserved
+//  Copyright (c) 1998-2022 Marti Maria Saguer, all rights reserved
 //
 //
 // This program is free software: you can redistribute it and/or modify
@@ -64,7 +64,7 @@ cmsINLINE cmsFloat32Number LinearInterpInt(cmsFloat32Number a, cmsFloat32Number 
 // To prevent out of bounds indexing
 cmsINLINE cmsFloat32Number fclamp100(cmsFloat32Number v)
 {
-       return v < 0.0f ? 0.0f : (v > 100.0f ? 100.0f : v);
+       return ((v < 1.0e-9f) || isnan(v)) ? 0.0f : (v > 100.0f ? 100.0f : v);       
 }
 
 
@@ -303,9 +303,11 @@ void FloatCMYKCLUTEval(struct _cmstransform_struct *CMMcargo,
                 out[OutChan] += DestIncrements[OutChan];
             }
 
-            if (ain)
-                *out[TotalOut] = *ain;
-
+            if (ain) {
+                *(cmsFloat32Number*)(out[TotalOut]) = *(cmsFloat32Number*)ain;
+                ain += SourceIncrements[4];
+                out[TotalOut] += DestIncrements[TotalOut];
+            }
         }
 
         strideIn += Stride->BytesPerLineIn;
@@ -331,7 +333,6 @@ cmsBool OptimizeCLUTCMYKTransform(_cmsTransform2Fn* TransformFn,
     int nGridPoints;    
     cmsPipeline* OptimizedLUT = NULL;    
     cmsStage* OptimizedCLUTmpe;
-    cmsStage* mpe;
     FloatCMYKData* pcmyk;
     cmsContext ContextID;
     _cmsStageCLutData* data;
@@ -339,7 +340,7 @@ cmsBool OptimizeCLUTCMYKTransform(_cmsTransform2Fn* TransformFn,
     // For empty transforms, do nothing
     if (*Lut == NULL) return FALSE;
 
-    // This is a loosy optimization! does not apply in floating-point cases
+    // This is a lossy optimization! does not apply in floating-point cases
     if (!T_FLOAT(*InputFormat) || !T_FLOAT(*OutputFormat)) return FALSE;
 
     // Only on 8-bit
@@ -349,14 +350,7 @@ cmsBool OptimizeCLUTCMYKTransform(_cmsTransform2Fn* TransformFn,
     if (T_COLORSPACE(*InputFormat)  != PT_CMYK) return FALSE;
    
     OriginalLut = *Lut;
-
-   // Named color pipelines cannot be optimized either
-   for (mpe = cmsPipelineGetPtrToFirstStage(OriginalLut);
-         mpe != NULL;
-         mpe = cmsStageNext(mpe)) {
-            if (cmsStageType(mpe) == cmsSigNamedColorElemType) return FALSE;
-    }
-
+   
     ContextID = cmsGetPipelineContextID(OriginalLut);
     nGridPoints = _cmsReasonableGridpointsByColorspace(cmsSigRgbData, *dwFlags);
              

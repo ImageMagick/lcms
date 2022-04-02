@@ -7,7 +7,7 @@ AC_PREREQ(2.60)
 #
 # Set the package name and version
 #
-AC_INIT(lcms2,2.12)
+AC_INIT(lcms2,2.13)
 
 # Specify directory where m4 macros may be found.
 AC_CONFIG_MACRO_DIR([m4])
@@ -16,7 +16,7 @@ AC_CONFIG_MACRO_DIR([m4])
 # Libtool library revision control info
 #
 LIBRARY_CURRENT=2
-LIBRARY_REVISION=12
+LIBRARY_REVISION=13
 LIBRARY_AGE=0
 
 AC_SUBST(LIBRARY_CURRENT)dnl
@@ -33,6 +33,7 @@ AM_INIT_AUTOMAKE([foreign 1.9 tar-ustar no-define dist-zip subdir-objects])
 AC_PROG_CC_STDC
 AC_PROG_CPP
 AC_PROG_CXX
+LT_INIT
 
 #AM_PROG_LD
 #AC_SUBST(LD)
@@ -79,6 +80,22 @@ AX_APPEND_COMPILE_FLAGS(["-fvisibility=hidden"])
 # If words are stored with the most significant byte first (like
 # Motorola and SPARC CPUs), define `WORDS_BIGENDIAN'.
 AC_C_BIGENDIAN
+
+# Check for threadsafe variants of gmtime
+# Note: check for gmtime_s is a bit more complex as it is implemented as a macro
+AC_CHECK_FUNCS(gmtime_r, [], [
+               AC_MSG_CHECKING([for gmtime_s])
+               AC_LINK_IFELSE([
+                 AC_LANG_PROGRAM([[#include <time.h>]], [[
+                   time_t t;
+                   struct tm m;
+                   gmtime_s(&m, &t);
+                   return 0;
+                 ]])],
+                 [AC_MSG_RESULT([yes])
+                  AC_DEFINE([HAVE_GMTIME_S], [1], [gmtime_s can be used])], 
+                 [AC_MSG_RESULT([no])]
+               )])
 
 # Point to JPEG installed in DIR or disable JPEG with --without-jpeg.
 AC_ARG_WITH(jpeg,
@@ -127,12 +144,15 @@ AC_ARG_WITH(fastfloat,
             AS_HELP_STRING([--with-fastfloat],
                            [build and install fast_float plugin, use only if GPL 3.0 is acceptable]),
             [
-                with_fastfloat='yes'
-                LIB_PLUGINS="$LIB_PLUGINS -llcms2_fast_float"
+                with_fastfloat=$withval
             ],
             [
                 with_fastfloat='no'
             ])
+if test "$with_fastfloat" == "yes"
+then
+            LIB_PLUGINS="$LIB_PLUGINS -llcms2_fast_float"
+fi
 
 #
 # Determine POSIX threads settings
@@ -171,6 +191,19 @@ then
   fi
 fi
 
+# check if compiler supports SSE2 intrinsics
+AC_LANG_PUSH([C])
+
+AC_MSG_CHECKING([whether compiler supports SSE2])
+AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+    #include <emmintrin.h>
+    main() { __m128i n = _mm_set1_epi8(42); }]])],
+  [ac_compiler_supports_sse2=yes], [ac_compiler_supports_sse2=no])
+AC_MSG_RESULT([$ac_compiler_supports_sse2])
+AS_IF([test "x$ac_compiler_supports_sse2" != "xyes"],
+  [AC_DEFINE([CMS_DONT_USE_SSE2], [1], [Define if compiler does not support SSE2 intrinsics])])
+
+AC_LANG_POP([C])
 
 #
 # Find math library

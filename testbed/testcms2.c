@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2020 Marti Maria Saguer
+//  Copyright (c) 1998-2021 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -440,7 +440,7 @@ cmsHPROFILE Create_CMYK_DeviceLink(void)
 }
 
 
-// Create a fake CMYK profile, without any other requeriment that being coarse CMYK.
+// Create a fake CMYK profile, without any other requirement that being coarse CMYK.
 // DON'T USE THIS PROFILE FOR ANYTHING, IT IS USELESS BUT FOR TESTING PURPOSES.
 typedef struct {
 
@@ -6056,8 +6056,10 @@ cmsInt32Number CheckEncodedLabTransforms(void)
 {
     cmsHTRANSFORM xform;
     cmsUInt16Number In[3];
+    cmsUInt16Number wLab[3];
     cmsCIELab Lab;
     cmsCIELab White = { 100, 0, 0 };
+    cmsCIELab Color = { 7.11070, -76, 26 };
     cmsHPROFILE hLab1 = cmsCreateLab4ProfileTHR(DbgThread(), NULL);
     cmsHPROFILE hLab2 = cmsCreateLab4ProfileTHR(DbgThread(), NULL);
 
@@ -6072,6 +6074,18 @@ cmsInt32Number CheckEncodedLabTransforms(void)
     cmsDoTransform(xform, In, &Lab, 1);
 
     if (cmsDeltaE(&Lab, &White) > 0.0001) return 0;
+    
+
+    In[0] = 0x1234;
+    In[1] = 0x3434;
+    In[2] = 0x9A9A;
+
+    cmsDoTransform(xform, In, &Lab, 1);
+    cmsFloat2LabEncoded(wLab, &Lab);
+    if (memcmp(In, wLab, sizeof(wLab)) != 0) return 0;
+    if (cmsDeltaE(&Lab, &Color) > 0.0001) return 0;
+
+
     cmsDeleteTransform(xform);
 
     hLab1 = cmsCreateLab2ProfileTHR(DbgThread(), NULL);
@@ -6079,7 +6093,6 @@ cmsInt32Number CheckEncodedLabTransforms(void)
 
     xform = cmsCreateTransformTHR(DbgThread(), hLab1, TYPE_LabV2_16, hLab2, TYPE_Lab_DBL, INTENT_RELATIVE_COLORIMETRIC, 0);
     cmsCloseProfile(hLab1); cmsCloseProfile(hLab2);
-
 
     In[0] = 0xFF00;
     In[1] = 0x8000;
@@ -7816,49 +7829,49 @@ cmsInt32Number CheckReadRAW(void)
 static
 cmsInt32Number CheckMeta(void)
 {
-	char *data;
-	cmsHANDLE dict;
-	cmsHPROFILE p;
-	cmsUInt32Number clen;
-	FILE *fp;
-	int rc;
-	
-	/* open file */
-	p = cmsOpenProfileFromFile("ibm-t61.icc", "r");
-	if (p == NULL) return 0;
+    char *data;
+    cmsHANDLE dict;
+    cmsHPROFILE p;
+    cmsUInt32Number clen;
+    FILE *fp;
+    int rc;
+    
+    /* open file */
+    p = cmsOpenProfileFromFile("ibm-t61.icc", "r");
+    if (p == NULL) return 0;
 
-	/* read dictionary, but don't do anything with the value */
-	//COMMENT OUT THE NEXT TWO LINES AND IT WORKS FINE!!!
-	dict = cmsReadTag(p, cmsSigMetaTag);
-	if (dict == NULL) return 0;
+    /* read dictionary, but don't do anything with the value */
+    //COMMENT OUT THE NEXT TWO LINES AND IT WORKS FINE!!!
+    dict = cmsReadTag(p, cmsSigMetaTag);
+    if (dict == NULL) return 0;
 
-	/* serialize profile to memory */
-	rc = cmsSaveProfileToMem(p, NULL, &clen);
-	if (!rc) return 0;
+    /* serialize profile to memory */
+    rc = cmsSaveProfileToMem(p, NULL, &clen);
+    if (!rc) return 0;
 
-	data = (char*) malloc(clen);
-	rc = cmsSaveProfileToMem(p, data, &clen);
-	if (!rc) return 0;
+    data = (char*) malloc(clen);
+    rc = cmsSaveProfileToMem(p, data, &clen);
+    if (!rc) return 0;
 
-	/* write the memory blob to a file */
-	//NOTE: The crash does not happen if cmsSaveProfileToFile() is used */
-	fp = fopen("new.icc", "wb");
-	fwrite(data, 1, clen, fp);
-	fclose(fp);
-	free(data);
+    /* write the memory blob to a file */
+    //NOTE: The crash does not happen if cmsSaveProfileToFile() is used */
+    fp = fopen("new.icc", "wb");
+    fwrite(data, 1, clen, fp);
+    fclose(fp);
+    free(data);
 
-	cmsCloseProfile(p);
+    cmsCloseProfile(p);
 
-	/* open newly created file and read metadata */
-	p = cmsOpenProfileFromFile("new.icc", "r");
-	//ERROR: Bad dictionary Name/Value
-	//ERROR: Corrupted tag 'meta'
-	//test: test.c:59: main: Assertion `dict' failed.
-	dict = cmsReadTag(p, cmsSigMetaTag);
+    /* open newly created file and read metadata */
+    p = cmsOpenProfileFromFile("new.icc", "r");
+    //ERROR: Bad dictionary Name/Value
+    //ERROR: Corrupted tag 'meta'
+    //test: test.c:59: main: Assertion `dict' failed.
+    dict = cmsReadTag(p, cmsSigMetaTag);
    if (dict == NULL) return 0;
 
    cmsCloseProfile(p);
-	return 1;
+    return 1;
 }
 
 
@@ -8252,6 +8265,202 @@ int CheckEmptyMLUC(void)
     cmsDeleteContext(context);
 
     return 1;
+}
+
+static
+double distance(const cmsUInt16Number* a, const cmsUInt16Number* b)
+{
+    double d1 = a[0] - b[0];
+    double d2 = a[1] - b[1];
+    double d3 = a[2] - b[2];
+
+    return sqrt(d1 * d1 + d2 * d2 + d3 * d3);
+}
+
+/**
+* In 2.12, a report suggest that the built-in sRGB has roundtrip errors that makes color to move
+* when roundtripping again and again
+*/
+static
+int Check_sRGB_Rountrips(void)
+{
+    cmsUInt16Number rgb[3], seed[3];
+    cmsCIELab Lab;
+    int i, r, g, b;
+    double err, maxErr;
+    cmsHPROFILE hsRGB = cmsCreate_sRGBProfile();
+    cmsHPROFILE hLab = cmsCreateLab4Profile(NULL);
+
+    cmsHTRANSFORM hBack = cmsCreateTransform(hLab, TYPE_Lab_DBL, hsRGB, TYPE_RGB_16, INTENT_RELATIVE_COLORIMETRIC, 0);
+    cmsHTRANSFORM hForth = cmsCreateTransform(hsRGB, TYPE_RGB_16, hLab, TYPE_Lab_DBL, INTENT_RELATIVE_COLORIMETRIC, 0);
+
+    cmsCloseProfile(hLab);
+    cmsCloseProfile(hsRGB);
+
+    maxErr = 0.0;
+    for (r = 0; r <= 255; r += 16)
+        for (g = 0; g <= 255; g += 16)
+            for (b = 0; b <= 255; b += 16)
+            {
+                seed[0] = rgb[0] = ((r << 8) | r);
+                seed[1] = rgb[1] = ((g << 8) | g);
+                seed[2] = rgb[2] = ((b << 8) | b);
+
+                for (i = 0; i < 50; i++)
+                {
+                    cmsDoTransform(hForth, rgb, &Lab, 1);
+                    cmsDoTransform(hBack, &Lab, rgb, 1);
+                }
+
+                err = distance(seed, rgb);
+
+                if (err > maxErr)
+                    maxErr = err;
+            }
+
+
+    cmsDeleteTransform(hBack);
+    cmsDeleteTransform(hForth);
+
+    if (maxErr > 20.0)
+    {
+        printf("Maximum sRGB roundtrip error %f!\n", maxErr);
+        return 0;
+    }
+    
+    return 1;
+}
+
+static
+cmsHPROFILE createRgbGamma(cmsFloat64Number g)
+{
+    cmsCIExyY       D65 = { 0.3127, 0.3290, 1.0 };
+    cmsCIExyYTRIPLE Rec709Primaries = {
+                                {0.6400, 0.3300, 1.0},
+                                {0.3000, 0.6000, 1.0},
+                                {0.1500, 0.0600, 1.0}
+    };
+    cmsToneCurve* Gamma[3];
+    cmsHPROFILE  hRGB;
+    
+    Gamma[0] = Gamma[1] = Gamma[2] = cmsBuildGamma(0, g);
+    if (Gamma[0] == NULL) return NULL;
+
+    hRGB = cmsCreateRGBProfile(&D65, &Rec709Primaries, Gamma);
+    cmsFreeToneCurve(Gamma[0]);    
+    return hRGB;
+}
+
+
+static
+int CheckGammaSpaceDetection(void)
+{
+    cmsFloat64Number i;
+
+    for (i = 0.5; i < 3; i += 0.1)
+    {                
+        cmsHPROFILE hProfile = createRgbGamma(i);
+
+        cmsFloat64Number gamma = cmsDetectRGBProfileGamma(hProfile, 0.01);
+
+        cmsCloseProfile(hProfile);
+
+        if (fabs(gamma - i) > 0.1)
+        {
+            Fail("Failed profile gamma detection of %f (got %f)", i, gamma);
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+
+#if 0
+
+// You need to download following profiles to execute this test: sRGB-elle-V4-srgbtrc.icc, sRGB-elle-V4-g10.icc
+// The include this line in the checks list:  Check("KInear spaces detection", CheckLinearSpacesOptimization);
+static
+void uint16toFloat(cmsUInt16Number* src, cmsFloat32Number* dst)
+{
+    for (int i = 0; i < 3; i++) {
+        dst[i] = src[i] / 65535.f;
+    }
+}
+
+static
+int CheckLinearSpacesOptimization(void)
+{
+    cmsHPROFILE lcms_sRGB = cmsCreate_sRGBProfile();
+    cmsHPROFILE elle_sRGB = cmsOpenProfileFromFile("sRGB-elle-V4-srgbtrc.icc", "r");
+    cmsHPROFILE elle_linear = cmsOpenProfileFromFile("sRGB-elle-V4-g10.icc", "r");
+    cmsHTRANSFORM transform1 = cmsCreateTransform(elle_sRGB, TYPE_RGB_16, elle_linear, TYPE_RGB_16, INTENT_RELATIVE_COLORIMETRIC, 0);
+    cmsHTRANSFORM transform2 = cmsCreateTransform(elle_linear, TYPE_RGB_16, lcms_sRGB, TYPE_RGB_16, INTENT_RELATIVE_COLORIMETRIC, 0);
+    cmsHTRANSFORM transform2a = cmsCreateTransform(elle_linear, TYPE_RGB_FLT, lcms_sRGB, TYPE_RGB_16, INTENT_RELATIVE_COLORIMETRIC, 0);
+
+    cmsUInt16Number sourceCol[3] = { 43 * 257, 27 * 257, 6 * 257 };
+    cmsUInt16Number linearCol[3] = { 0 };
+    float linearColF[3] = { 0 };
+    cmsUInt16Number finalCol[3] = { 0 };
+    int difR, difG, difB;
+    int difR2, difG2, difB2;
+
+    cmsDoTransform(transform1, sourceCol, linearCol, 1);
+    cmsDoTransform(transform2, linearCol, finalCol, 1);
+
+    cmsCloseProfile(lcms_sRGB); cmsCloseProfile(elle_sRGB); cmsCloseProfile(elle_linear);
+
+
+    difR = (int)sourceCol[0] - finalCol[0];
+    difG = (int)sourceCol[1] - finalCol[1];
+    difB = (int)sourceCol[2] - finalCol[2];
+
+
+    uint16toFloat(linearCol, linearColF);
+    cmsDoTransform(transform2a, linearColF, finalCol, 1);
+
+    difR2 = (int)sourceCol[0] - finalCol[0];
+    difG2 = (int)sourceCol[1] - finalCol[1];
+    difB2 = (int)sourceCol[2] - finalCol[2];
+
+    cmsDeleteTransform(transform1);
+    cmsDeleteTransform(transform2);
+    cmsDeleteTransform(transform2a);
+
+    if (abs(difR2 - difR) > 5 || abs(difG2 - difG) > 5 || abs(difB2 - difB) > 5)
+    {
+        Fail("Linear detection failed");
+        return 0;
+    }
+
+    return 1;
+}
+#endif
+
+
+static
+int CheckIntToFloatTransform(void)
+{
+    cmsHPROFILE hAbove = Create_AboveRGB();
+    cmsHPROFILE hsRGB = cmsCreate_sRGBProfile();
+
+    cmsHTRANSFORM xform = cmsCreateTransform(hAbove, TYPE_RGB_8, hsRGB, TYPE_RGB_DBL, INTENT_PERCEPTUAL, 0);
+
+    cmsUInt8Number rgb8[3] = { 12, 253, 21 };
+    cmsFloat64Number rgbDBL[3] = { 0 };
+
+    cmsCloseProfile(hAbove); cmsCloseProfile(hsRGB);
+
+    cmsDoTransform(xform, rgb8, rgbDBL, 1);
+
+    
+    cmsDeleteTransform(xform);
+
+    if (rgbDBL[0] < 0 && rgbDBL[2] < 0) return 1;
+
+    Fail("Unbounded transforms with integer input failed");
+
+    return 0;
 }
 
 // --------------------------------------------------------------------------------------------------
@@ -8970,6 +9179,10 @@ int main(int argc, char* argv[])
         Exhaustive = 1;
         printf("Running exhaustive tests (will take a while...)\n\n");
     }
+    else
+        if ((argc == 3) && strcmp(argv[1], "--chdir") == 0) {
+            CHDIR(argv[2]);
+        }
 
 #ifdef LCMS_FAST_EXTENSIONS
    printf("Installing fast float extension ...");   
@@ -8985,7 +9198,7 @@ int main(int argc, char* argv[])
     printf("Installing error logger ... ");
     cmsSetLogErrorHandler(FatalErrorQuit);
     printf("done.\n");
-        
+           
     PrintSupportedIntents();
     
     Check("Base types", CheckBaseTypes);
@@ -9189,6 +9402,9 @@ int main(int argc, char* argv[])
     Check("Forged MPE profile", CheckForgedMPE);
     Check("Proofing intersection", CheckProofingIntersection);
     Check("Empty MLUC", CheckEmptyMLUC);
+    Check("sRGB round-trips", Check_sRGB_Rountrips);
+    Check("Gamma space detection", CheckGammaSpaceDetection);
+    Check("Unbounded mode w/ integer output", CheckIntToFloatTransform);
     }
 
     if (DoPluginTests)
