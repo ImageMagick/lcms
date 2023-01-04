@@ -168,7 +168,7 @@ typedef double               cmsFloat64Number;
 #if defined(CMS_NO_REGISTER_KEYWORD) && !defined(CMS_DLL) && !defined(CMS_DLL_BUILD) 
 #  define CMSREGISTER
 #else
-#  define CMSREGISTER register
+#  define CMSREGISTER
 #endif
 
 // In the case 64 bit numbers are not supported by the compiler
