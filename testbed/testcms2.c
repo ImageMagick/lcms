@@ -56,6 +56,15 @@ void Die(const char* Reason, ...)
     exit(1);
 }
 
+static
+void* chknull(void* mem)
+{
+    if (mem == NULL)
+        Die("Memory may be corrupted");
+
+    return mem;
+}
+
 // Memory management replacement -----------------------------------------------------------------------------
 
 
@@ -115,7 +124,7 @@ void* DebugMalloc(cmsContext ContextID, cmsUInt32Number size)
     if (size > SingleHit)
         SingleHit = size;
 
-    blk = (_cmsMemoryBlock*) malloc(size + SIZE_OF_MEM_HEADER);
+    blk = (_cmsMemoryBlock*) chknull(malloc(size + SIZE_OF_MEM_HEADER));
     if (blk == NULL) return NULL;
 
     blk ->KeepSize = size;
@@ -1019,7 +1028,7 @@ cmsInt32Number Check1D(cmsInt32Number nNodesToCheck, cmsBool  Down, cmsInt32Numb
     cmsInterpParams* p;
     cmsUInt16Number* Tab;
 
-    Tab = (cmsUInt16Number*) malloc(sizeof(cmsUInt16Number)* nNodesToCheck);
+    Tab = (cmsUInt16Number*) chknull(malloc(sizeof(cmsUInt16Number)* nNodesToCheck));
     if (Tab == NULL) return 0;
 
     p = _cmsComputeInterpParams(DbgThread(), nNodesToCheck, 1, 1, Tab, CMS_LERP_FLAGS_16BITS);
@@ -5294,7 +5303,7 @@ cmsInt32Number CheckRAWtags(cmsInt32Number Pass,  cmsHPROFILE hProfile)
         case 2:
             if (!cmsReadRawTag(hProfile, (cmsTagSignature) 0x31323334, Buffer, 7)) return 0; 
 
-            if (strncmp(Buffer, "data123", 7) != 0) return 0;
+            if (memcmp(Buffer, "data123", 7) != 0) return 0;
             return 1;
 
         default:
@@ -5302,6 +5311,40 @@ cmsInt32Number CheckRAWtags(cmsInt32Number Pass,  cmsHPROFILE hProfile)
     }
 }
 
+
+
+static
+cmsInt32Number Check_cicp(cmsInt32Number Pass, cmsHPROFILE hProfile)
+{
+    cmsVideoSignalType* v;
+    cmsVideoSignalType  s;
+
+    switch (Pass) {
+
+    case 1:
+        s.ColourPrimaries = 1;
+        s.TransferCharacteristics = 13;
+        s.MatrixCoefficients = 0;
+        s.VideoFullRangeFlag = 1;
+        
+        if (!cmsWriteTag(hProfile, cmsSigcicpTag, &s)) return 0;
+        return 1;
+
+    case 2:
+        v = (cmsVideoSignalType*)cmsReadTag(hProfile, cmsSigcicpTag);
+        if (v == NULL) return 0;
+
+        if (v->ColourPrimaries != 1) return 0;
+        if (v->TransferCharacteristics != 13) return 0;
+        if (v->MatrixCoefficients != 0) return 0;
+        if (v->VideoFullRangeFlag != 1) return 0;
+        return 1;
+
+    default:
+        return 0;
+    }
+
+}
 
 // This is a very big test that checks every single tag
 static
@@ -5447,6 +5490,9 @@ cmsInt32Number CheckProfileCreation(void)
         SubTest("Dictionary meta tags");
         // if (!CheckDictionary16(Pass, h)) goto Error;
         if (!CheckDictionary24(Pass, h)) goto Error;
+
+        SubTest("cicp Video Signal Type");
+        if (!Check_cicp(Pass, h)) goto Error;
 
         if (Pass == 1) {
             cmsSaveProfileToFile(h, "alltags.icc");
@@ -7788,41 +7834,41 @@ cmsInt32Number CheckFloatSegments(void)
 static
 cmsInt32Number CheckReadRAW(void)
 {
-    cmsInt32Number tag_size, tag_size1;
-    char buffer[4];
-    cmsHPROFILE hProfile;
-    
+	cmsInt32Number tag_size, tag_size1;
+	char buffer[37009];
+	cmsHPROFILE hProfile;
 
-    SubTest("RAW read on on-disk");
-    hProfile = cmsOpenProfileFromFile("test1.icc", "r");
 
-    if (hProfile == NULL) 
-        return 0;
-    
-    tag_size = cmsReadRawTag(hProfile, cmsSigGamutTag, buffer, 4);
-    tag_size1 = cmsReadRawTag(hProfile, cmsSigGamutTag, NULL, 0);
+	SubTest("RAW read on on-disk");
+	hProfile = cmsOpenProfileFromFile("test1.icc", "r");
 
-    cmsCloseProfile(hProfile);
+	if (hProfile == NULL)
+		return 0;
+	tag_size1 = cmsReadRawTag(hProfile, cmsSigGamutTag, NULL, 0);
+	tag_size = cmsReadRawTag(hProfile, cmsSigGamutTag, buffer, 37009);
 
-    if (tag_size != 4)
-        return 0;
 
-    if (tag_size1 != 37009)
-        return 0;
+	cmsCloseProfile(hProfile);
 
-    SubTest("RAW read on in-memory created profiles");
-    hProfile = cmsCreate_sRGBProfile();
-    tag_size = cmsReadRawTag(hProfile, cmsSigGreenColorantTag, buffer, 4);
-    tag_size1 = cmsReadRawTag(hProfile, cmsSigGreenColorantTag, NULL, 0);
+	if (tag_size != 37009)
+		return 0;
 
-    cmsCloseProfile(hProfile);
+	if (tag_size1 != 37009)
+		return 0;
 
-    if (tag_size != 4)
-        return 0;
-    if (tag_size1 != 20)
-        return 0;
+	SubTest("RAW read on in-memory created profiles");
+	hProfile = cmsCreate_sRGBProfile();
+	tag_size1 = cmsReadRawTag(hProfile, cmsSigGreenColorantTag, NULL, 0);
+	tag_size = cmsReadRawTag(hProfile, cmsSigGreenColorantTag, buffer, 20);
 
-    return 1;
+	cmsCloseProfile(hProfile);
+
+	if (tag_size != 20)
+		return 0;
+	if (tag_size1 != 20)
+		return 0;
+
+	return 1;
 }
 
 
@@ -7849,7 +7895,7 @@ cmsInt32Number CheckMeta(void)
     rc = cmsSaveProfileToMem(p, NULL, &clen);
     if (!rc) return 0;
 
-    data = (char*) malloc(clen);
+    data = (char*) chknull(malloc(clen));
     rc = cmsSaveProfileToMem(p, data, &clen);
     if (!rc) return 0;
 
@@ -8138,7 +8184,7 @@ int CheckForgedMPE(void)
     }
 
     srcCS = cmsGetColorSpace(srcProfile);
-    nSrcComponents = cmsChannelsOf(srcCS);
+    nSrcComponents = cmsChannelsOfColorSpace(srcCS);
     
     if (srcCS == cmsSigLabData) {
         srcFormat =
@@ -8302,9 +8348,9 @@ int Check_sRGB_Rountrips(void)
         for (g = 0; g <= 255; g += 16)
             for (b = 0; b <= 255; b += 16)
             {
-                seed[0] = rgb[0] = ((r << 8) | r);
-                seed[1] = rgb[1] = ((g << 8) | g);
-                seed[2] = rgb[2] = ((b << 8) | b);
+                seed[0] = rgb[0] = (cmsUInt16Number) ((r << 8) | r);
+                seed[1] = rgb[1] = (cmsUInt16Number) ((g << 8) | g);
+                seed[2] = rgb[2] = (cmsUInt16Number) ((b << 8) | b);
 
                 for (i = 0; i < 50; i++)
                 {
@@ -8375,6 +8421,28 @@ int CheckGammaSpaceDetection(void)
     return 1;
 }
 
+// Per issue #308. A built-in is corrupted by using write raw tag was causing a segfault
+static
+int CheckInducedCorruption(void)
+{
+    cmsHTRANSFORM xform0;
+    char garbage[] = "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b";
+    cmsHPROFILE hsrgb = cmsCreate_sRGBProfile();
+    cmsHPROFILE hLab = cmsCreateLab4Profile(NULL);
+
+    cmsSetLogErrorHandler(NULL);
+    cmsWriteRawTag(hsrgb, cmsSigBlueColorantTag, &garbage, sizeof(garbage));
+
+    xform0 = cmsCreateTransform(hsrgb, TYPE_RGB_16, hLab, TYPE_Lab_16, INTENT_RELATIVE_COLORIMETRIC, 0);
+
+    if (xform0) cmsDeleteTransform(xform0);
+
+    cmsCloseProfile(hsrgb);
+    cmsCloseProfile(hLab);
+
+    ResetFatalError();
+    return 1;
+}
 
 #if 0
 
@@ -8516,7 +8584,7 @@ void SpeedTest32bits(const char * Title, cmsHPROFILE hlcmsProfileIn, cmsHPROFILE
     NumPixels = 256 / Interval * 256 / Interval * 256 / Interval;
     Mb = NumPixels * sizeof(Scanline_rgba32);
 
-    In = (Scanline_rgba32 *) malloc(Mb);
+    In = (Scanline_rgba32 *) chknull(malloc(Mb));
 
     j = 0;
     for (r=0; r < 256; r += Interval)
@@ -8567,7 +8635,7 @@ void SpeedTest16bits(const char * Title, cmsHPROFILE hlcmsProfileIn, cmsHPROFILE
 
     Mb = 256*256*256 * sizeof(Scanline_rgb16);
 
-    In = (Scanline_rgb16*) malloc(Mb);
+    In = (Scanline_rgb16*) chknull(malloc(Mb));
 
     j = 0;
     for (r=0; r < 256; r++)
@@ -8620,7 +8688,7 @@ void SpeedTest32bitsCMYK(const char * Title, cmsHPROFILE hlcmsProfileIn, cmsHPRO
     NumPixels = 256 / Interval * 256 / Interval * 256 / Interval;
     Mb = NumPixels * sizeof(Scanline_rgba32);
 
-    In = (Scanline_rgba32 *) malloc(Mb);
+    In = (Scanline_rgba32 *) chknull(malloc(Mb));
 
     j = 0;
     for (r=0; r < 256; r += Interval)
@@ -8673,7 +8741,7 @@ void SpeedTest16bitsCMYK(const char * Title, cmsHPROFILE hlcmsProfileIn, cmsHPRO
 
     Mb = 256*256*256*sizeof(Scanline_rgba16);
 
-    In = (Scanline_rgba16*) malloc(Mb);
+    In = (Scanline_rgba16*) chknull(malloc(Mb));
 
     j = 0;
     for (r=0; r < 256; r++)
@@ -8726,7 +8794,7 @@ void SpeedTest8bits(const char * Title, cmsHPROFILE hlcmsProfileIn, cmsHPROFILE 
 
     Mb = 256*256*256*sizeof(Scanline_rgb8);
 
-    In = (Scanline_rgb8*) malloc(Mb);
+    In = (Scanline_rgb8*) chknull(malloc(Mb));
 
     j = 0;
     for (r=0; r < 256; r++)
@@ -8777,7 +8845,7 @@ void SpeedTest8bitsCMYK(const char * Title, cmsHPROFILE hlcmsProfileIn, cmsHPROF
 
     Mb = 256*256*256*sizeof(Scanline_rgba8);
 
-    In = (Scanline_rgba8*) malloc(Mb);
+    In = (Scanline_rgba8*) chknull(malloc(Mb));
 
     j = 0;
     for (r=0; r < 256; r++)
@@ -8833,7 +8901,7 @@ void SpeedTest32bitsGray(const char * Title, cmsHPROFILE hlcmsProfileIn, cmsHPRO
     NumPixels = 256 / Interval * 256 / Interval * 256 / Interval;
     Mb = NumPixels * sizeof(cmsFloat32Number);
 
-    In = (cmsFloat32Number*) malloc(Mb);
+    In = (cmsFloat32Number*) chknull(malloc(Mb));
 
     j = 0;
     for (r = 0; r < 256; r += Interval)
@@ -8878,7 +8946,7 @@ void SpeedTest16bitsGray(const char * Title, cmsHPROFILE hlcmsProfileIn, cmsHPRO
     cmsCloseProfile(hlcmsProfileOut);
     Mb = 256*256*256 * sizeof(cmsUInt16Number);
 
-    In = (cmsUInt16Number *) malloc(Mb);
+    In = (cmsUInt16Number *) chknull(malloc(Mb));
 
     j = 0;
     for (r=0; r < 256; r++)
@@ -8924,7 +8992,7 @@ void SpeedTest8bitsGray(const char * Title, cmsHPROFILE hlcmsProfileIn, cmsHPROF
     cmsCloseProfile(hlcmsProfileOut);
     Mb = 256*256*256;
 
-    In = (cmsUInt8Number*) malloc(Mb);
+    In = (cmsUInt8Number*) chknull(malloc(Mb));
 
     j = 0;
     for (r=0; r < 256; r++)
@@ -9150,8 +9218,6 @@ void PrintSupportedIntents(void)
     printf("\n");
 }
 
-
-
 // ---------------------------------------------------------------------------------------
 
 int main(int argc, char* argv[])
@@ -9166,13 +9232,12 @@ int main(int argc, char* argv[])
     _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
 
-
     // First of all, check for the right header
-   if (cmsGetEncodedCMMversion() != LCMS_VERSION) {
-          Die("Oops, you are mixing header and shared lib!\nHeader version reports to be '%d' and shared lib '%d'\n", LCMS_VERSION, cmsGetEncodedCMMversion());
-   }
+    if (cmsGetEncodedCMMversion() != LCMS_VERSION) {
+        Die("Oops, you are mixing header and shared lib!\nHeader version reports to be '%d' and shared lib '%d'\n", LCMS_VERSION, cmsGetEncodedCMMversion());
+    }
 
-    printf("LittleCMS %2.2f test bed %s %s\n\n", LCMS_VERSION / 1000.0, __DATE__, __TIME__);
+    printf("LittleCMS %2.2f test bed %s %s\n\n", cmsGetEncodedCMMversion() / 1000.0, __DATE__, __TIME__);
 
     if ((argc == 2) && strcmp(argv[1], "--exhaustive") == 0) {
 
@@ -9184,13 +9249,6 @@ int main(int argc, char* argv[])
             CHDIR(argv[2]);
         }
 
-#ifdef LCMS_FAST_EXTENSIONS
-   printf("Installing fast float extension ...");   
-   cmsPlugin(cmsFastFloatExtensions());
-   printf("done.\n");
-#endif
-
-
     printf("Installing debug memory plug-in ... ");
     cmsPlugin(&DebugMemHandler);
     printf("done.\n");
@@ -9198,7 +9256,7 @@ int main(int argc, char* argv[])
     printf("Installing error logger ... ");
     cmsSetLogErrorHandler(FatalErrorQuit);
     printf("done.\n");
-           
+         
     PrintSupportedIntents();
     
     Check("Base types", CheckBaseTypes);
@@ -9391,7 +9449,7 @@ int main(int argc, char* argv[])
     Check("Parametric curve on Rec709", CheckParametricRec709);
     Check("Floating Point sampled curve with non-zero start", CheckFloatSamples);
     Check("Floating Point segmented curve with short sampled segment", CheckFloatSegments);
-    Check("Read RAW portions", CheckReadRAW);
+    Check("Read RAW tags", CheckReadRAW);
     Check("Check MetaTag", CheckMeta);
     Check("Null transform on floats", CheckFloatNULLxform);
     Check("Set free a tag", CheckRemoveTag);
@@ -9405,6 +9463,7 @@ int main(int argc, char* argv[])
     Check("sRGB round-trips", Check_sRGB_Rountrips);
     Check("Gamma space detection", CheckGammaSpaceDetection);
     Check("Unbounded mode w/ integer output", CheckIntToFloatTransform);
+    Check("Corrupted built-in by using cmsWriteRawTag", CheckInducedCorruption);
     }
 
     if (DoPluginTests)

@@ -23,23 +23,10 @@
 //
 //---------------------------------------------------------------------------------
 //
-// Version 2.13.1
+// Version 2.14 
 //
 
 #ifndef _lcms2_H
-
-// This part added for ImageMagick DLLs
-//
-#ifdef _VISUALC_
-#  if defined(_DLL) && !defined(_LIB)
-     // Using DLLs
-#    define CMS_DLL 1
-#    if defined(_LCMSLIB_)
-       // Building DLL
-#      define CMS_DLL_BUILD 1
-#    endif // defined(_LCMSLIB_)
-#  endif // defined(_DLL) && !defined(_LIB)
-#endif // _VISUALC_
 
 // ********** Configuration toggles ****************************************
 
@@ -94,7 +81,7 @@ extern "C" {
 #endif
 
 // Version/release
-#define LCMS_VERSION        2131
+#define LCMS_VERSION        2140
 
 // I will give the chance of redefining basic types for compilers that are not fully C99 compliant
 #ifndef CMS_BASIC_TYPES_ALREADY_DEFINED
@@ -165,10 +152,10 @@ typedef double               cmsFloat64Number;
 #endif
 
 // Handle "register" keyword
-#if defined(CMS_NO_REGISTER_KEYWORD) && !defined(CMS_DLL) && !defined(CMS_DLL_BUILD) 
+#if defined(CMS_NO_REGISTER_KEYWORD)
 #  define CMSREGISTER
 #else
-#  define CMSREGISTER
+#  define CMSREGISTER register
 #endif
 
 // In the case 64 bit numbers are not supported by the compiler
@@ -303,6 +290,7 @@ typedef int                  cmsBool;
 // Base ICC type definitions
 typedef enum {
     cmsSigChromaticityType                  = 0x6368726D,  // 'chrm'
+    cmsSigcicpType                          = 0x63696370,  // 'cicp' 
     cmsSigColorantOrderType                 = 0x636C726F,  // 'clro'
     cmsSigColorantTableType                 = 0x636C7274,  // 'clrt'
     cmsSigCrdInfoType                       = 0x63726469,  // 'crdi'
@@ -414,6 +402,7 @@ typedef enum {
     cmsSigViewingConditionsTag              = 0x76696577,  // 'view'
     cmsSigVcgtTag                           = 0x76636774,  // 'vcgt'
     cmsSigMetaTag                           = 0x6D657461,  // 'meta'
+    cmsSigcicpTag                           = 0x63696370,  // 'cicp'
     cmsSigArgyllArtsTag                     = 0x61727473   // 'arts'
 
 } cmsTagSignature;
@@ -1051,6 +1040,16 @@ typedef struct {
 
     } cmsICCViewingConditions;
 
+typedef struct {
+    cmsUInt8Number  ColourPrimaries;            // Recommendation ITU-T H.273
+    cmsUInt8Number  TransferCharacteristics;    //  (ISO/IEC 23091-2)
+    cmsUInt8Number  MatrixCoefficients;
+    cmsUInt8Number  VideoFullRangeFlag;
+
+} cmsVideoSignalType;
+
+
+
 // Get LittleCMS version (for shared objects) -----------------------------------------------------------------------------
 
 CMSAPI int               CMSEXPORT cmsGetEncodedCMMversion(void);
@@ -1533,7 +1532,11 @@ CMSAPI cmsBool           CMSEXPORT cmsIsCLUT(cmsHPROFILE hProfile, cmsUInt32Numb
 CMSAPI cmsColorSpaceSignature   CMSEXPORT _cmsICCcolorSpace(int OurNotation);
 CMSAPI int                      CMSEXPORT _cmsLCMScolorSpace(cmsColorSpaceSignature ProfileSpace);
 
+// Deprecated, use cmsChannelsOfColorSpace instead
 CMSAPI cmsUInt32Number   CMSEXPORT cmsChannelsOf(cmsColorSpaceSignature ColorSpace);
+
+// Get number of channels of color space or -1 if color space is not listed/supported
+CMSAPI cmsInt32Number CMSEXPORT cmsChannelsOfColorSpace(cmsColorSpaceSignature ColorSpace);
 
 // Build a suitable formatter for the colorspace of this profile. nBytes=1 means 8 bits, nBytes=2 means 16 bits. 
 CMSAPI cmsUInt32Number   CMSEXPORT cmsFormatterForColorspaceOfProfile(cmsHPROFILE hProfile, cmsUInt32Number nBytes, cmsBool lIsFloat);

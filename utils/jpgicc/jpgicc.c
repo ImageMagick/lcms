@@ -70,7 +70,7 @@ static struct my_error_mgr {
 } ErrorHandler;
 
 
-cmsUInt16Number Alarm[4] = {128,128,128,0};
+cmsUInt16Number Alarm[cmsMAXCHANNELS] = {128,128,128,0};
 
 
 static
@@ -1250,7 +1250,7 @@ void HandleSwitches(int argc, char *argv[])
 int main(int argc, char* argv[])
 {
 
-    fprintf(stderr, "Little CMS ICC profile applier for JPEG - v3.3 [LittleCMS %2.2f]\n\n", LCMS_VERSION / 1000.0);
+    fprintf(stderr, "Little CMS ICC profile applier for JPEG - v3.4 [LittleCMS %2.2f]\n\n", cmsGetEncodedCMMversion() / 1000.0);
     fprintf(stderr, "Copyright (c) 1998-2022 Marti Maria Saguer. See COPYING file for details.\n");
     fflush(stderr);
 

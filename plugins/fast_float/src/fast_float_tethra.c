@@ -134,9 +134,9 @@ void FloatCLUTEval(struct _cmstransform_struct* CMMcargo,
             py = g * p->Domain[1];
             pz = b * p->Domain[2];
             
-            x0 = _cmsQuickFloor(px); rx = (px - (cmsFloat32Number)x0);
-            y0 = _cmsQuickFloor(py); ry = (py - (cmsFloat32Number)y0);
-            z0 = _cmsQuickFloor(pz); rz = (pz - (cmsFloat32Number)z0);
+            x0 = (int) floorf(px); rx = (px - (cmsFloat32Number)x0);
+            y0 = (int) floorf(py); ry = (py - (cmsFloat32Number)y0);
+            z0 = (int) floorf(pz); rz = (pz - (cmsFloat32Number)z0);
             
 
             X0 = p->opta[2] * x0;
@@ -254,9 +254,9 @@ cmsBool OptimizeCLUTRGBTransform(_cmsTransform2Fn* TransformFn,
     if (T_BYTES(*InputFormat) != sizeof(cmsFloat32Number) || 
         T_BYTES(*OutputFormat) != sizeof(cmsFloat32Number)) return FALSE;
 
-    // Input has to be RGB, Output may be any
+    // Input has to be RGB
     if (T_COLORSPACE(*InputFormat) != PT_RGB) return FALSE;
-
+   
     OriginalLut = *Lut;
    
     ContextID        = cmsGetPipelineContextID(OriginalLut);
@@ -272,8 +272,44 @@ cmsBool OptimizeCLUTRGBTransform(_cmsTransform2Fn* TransformFn,
     // Add the CLUT to the destination LUT
     cmsPipelineInsertStage(OptimizedLUT, cmsAT_BEGIN, OptimizedCLUTmpe);
 
+    // If output is CMYK, add a conversion stage to get %   
+    if (T_COLORSPACE(*OutputFormat) == PT_CMYK) {
+
+        static const cmsFloat64Number mat[] = { 100.0,   0,     0,     0,
+                                                  0,   100.0,   0,     0,
+                                                  0,     0,   100.0,   0,
+                                                  0,     0,     0,   100.0 };
+
+        cmsStage* percent = cmsStageAllocMatrix(ContextID, 4, 4, mat, NULL);
+        if (percent == NULL) goto Error;
+
+        cmsPipelineInsertStage(OriginalLut, cmsAT_END, percent);
+    }
+    else
+        // If output is Lab, add a conversion stage to get Lab values
+        if (T_COLORSPACE(*OutputFormat) == PT_Lab) {
+
+            static const cmsFloat64Number mat[] = { 100.0,   0,    0,
+                                                      0,  255.0,   0,
+                                                      0,     0,   255.0 };
+
+            static const cmsFloat64Number off[] = { 0,   -128.0,     -128.0 };
+
+            cmsStage* lab_fix = cmsStageAllocMatrix(ContextID, 3, 3, mat, off);
+            if (lab_fix == NULL) goto Error;
+
+            cmsPipelineInsertStage(OriginalLut, cmsAT_END, lab_fix);
+        }
+
+
     // Resample the LUT
     if (!cmsStageSampleCLutFloat(OptimizedCLUTmpe, XFormSampler, (void*)OriginalLut, 0)) goto Error;
+
+    
+    if (T_COLORSPACE(*OutputFormat) == PT_CMYK) {
+
+        cmsPipelineUnlinkStage(OriginalLut, cmsAT_END, NULL);
+    }
 
     // Set the evaluator, copy parameters   
     data = (_cmsStageCLutData*) cmsStageData(OptimizedCLUTmpe);
