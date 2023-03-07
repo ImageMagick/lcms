@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System, multithreaded extensions
-//  Copyright (c) 1998-2022 Marti Maria Saguer, all rights reserved
+//  Copyright (c) 1998-2023 Marti Maria Saguer, all rights reserved
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -29,7 +29,9 @@
 #    include "crtdbg.h"
 #endif
 
+#ifndef PROFILES_DIR
 #define PROFILES_DIR "../../test_profiles/"
+#endif
 
 // A fast way to convert from/to 16 <-> 8 bits
 #define FROM_8_TO_16(rgb) (cmsUInt16Number) ((((cmsUInt16Number) (rgb)) << 8)|(rgb)) 
@@ -849,7 +851,7 @@ int main()
 #endif
 
     trace("Multithreaded extensions testbed - 1.1\n");
-    trace("Copyright (c) 1998-2022 Marti Maria Saguer, all rights reserved\n");
+    trace("Copyright (c) 1998-2023 Marti Maria Saguer, all rights reserved\n");
 
     trace("\nInstalling error logger ... ");
     cmsSetLogErrorHandler(FatalErrorQuit);

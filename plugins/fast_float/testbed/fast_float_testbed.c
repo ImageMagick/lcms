@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System, fast floating point extensions
-//  Copyright (c) 1998-2022 Marti Maria Saguer, all rights reserved
+//  Copyright (c) 1998-2023 Marti Maria Saguer, all rights reserved
 //
 //
 // This program is free software: you can redistribute it and/or modify
@@ -29,7 +29,9 @@
 #    include "crtdbg.h"
 #endif
 
+#ifndef PROFILES_DIR
 #define PROFILES_DIR "../../test_profiles/"
+#endif
 
 // Some pixel representations
 typedef struct { cmsUInt8Number  r, g, b;    }  Scanline_rgb8bits;
@@ -2459,7 +2461,7 @@ int main()
 #endif
 
        trace("FastFloating point extensions testbed - 1.6\n");
-       trace("Copyright (c) 1998-2022 Marti Maria Saguer, all rights reserved\n");
+       trace("Copyright (c) 1998-2023 Marti Maria Saguer, all rights reserved\n");
        
        trace("\nInstalling error logger ... ");
        cmsSetLogErrorHandler(FatalErrorQuit);
@@ -2468,7 +2470,7 @@ int main()
        trace("Installing plug-in ... ");
        cmsPlugin(cmsFastFloatExtensions());
        trace("done.\n\n");
-             
+                    
        CheckComputeIncrements();
 
        // 15 bit functionality
@@ -2508,7 +2510,7 @@ int main()
        
        trace("\nAll tests passed OK\n");
 
-       cmsUnregisterPlugins();
+       cmsDeleteContext(0);
 
        return 0;
 }
