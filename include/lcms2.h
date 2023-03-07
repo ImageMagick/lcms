@@ -28,6 +28,15 @@
 
 #ifndef _lcms2_H
 
+#ifdef _MSC_VER
+#  if defined(_DLL) && !defined(_LIB)
+#    define CMS_DLL 1
+#    if defined(_LCMSLIB_)
+#      define CMS_DLL_BUILD 1
+#    endif
+#  endif
+#endif
+
 // ********** Configuration toggles ****************************************
 
 // Uncomment this one if you are using big endian machines
@@ -62,7 +71,7 @@
 // #define CMS_RELY_ON_WINDOWS_STATIC_MUTEX_INIT
 
 // Uncomment this to remove the "register" storage class
-// #define CMS_NO_REGISTER_KEYWORD 1
+#define CMS_NO_REGISTER_KEYWORD 1
 
 // ********** End of configuration toggles ******************************
 
