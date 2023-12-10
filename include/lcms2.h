@@ -28,6 +28,15 @@
 
 #ifndef _lcms2_H
 
+#ifdef _MSC_VER
+#  if defined(_DLL) && !defined(_LIB)
+#    define CMS_DLL 1
+#    if defined(_LCMSLIB_)
+#      define CMS_DLL_BUILD 1
+#    endif
+#  endif
+#endif
+
 // ********** Configuration toggles ****************************************
 
 // Uncomment this one if you are using big endian machines
@@ -158,7 +167,7 @@ typedef double               cmsFloat64Number;
 #if defined(CMS_NO_REGISTER_KEYWORD)
 #  define CMSREGISTER
 #else
-#  define CMSREGISTER register
+#  define CMSREGISTER
 #endif
 
 // In the case 64 bit numbers are not supported by the compiler
