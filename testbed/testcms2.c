@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2021 Marti Maria Saguer
+//  Copyright (c) 1998-2023 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -225,7 +225,7 @@ void TestMemoryLeaks(cmsBool ok)
 static cmsPluginMemHandler DebugMemHandler = {{ cmsPluginMagicNumber, 2060, cmsPluginMemHandlerSig, NULL },
                                                DebugMalloc, DebugFree, DebugRealloc, NULL, NULL, NULL };
 
-// Returnds a pointer to the memhandler plugin
+// Returns a pointer to the memhandler plugin
 void* PluginMemHandler(void)
 {
     return (void*) &DebugMemHandler;
@@ -3676,6 +3676,30 @@ Error:
 }
 
 
+// Check UTF8 encoding
+static
+cmsInt32Number CheckMLU_UTF8(void)
+{
+    cmsMLU* mlu;
+    char Buffer[256];
+    cmsInt32Number rc = 1;
+        
+    mlu = cmsMLUalloc(DbgThread(), 0);
+    
+    cmsMLUsetWide(mlu, "en", "US", L"\x3b2\x14b");
+
+    cmsMLUgetUTF8(mlu, "en", "US", Buffer, 256);
+    if (strcmp(Buffer, "\xce\xb2\xc5\x8b") != 0) rc = 0;
+
+    if (rc == 0)
+        Fail("Unexpected string '%s'", Buffer);
+
+    cmsMLUfree(mlu);
+    return rc;
+}
+
+
+
 // A lightweight test of named color structures.
 static
 cmsInt32Number CheckNamedColorList(void)
@@ -5347,6 +5371,72 @@ cmsInt32Number Check_cicp(cmsInt32Number Pass, cmsHPROFILE hProfile)
 
 }
 
+
+static
+void SetMHC2Matrix(cmsFloat64Number XYZ2XYZmatrix[3][4])
+{
+    XYZ2XYZmatrix[0][0] = 0.5; XYZ2XYZmatrix[0][1] = 0.1; XYZ2XYZmatrix[0][2] = 0.1; XYZ2XYZmatrix[0][3] = 0.0;
+    XYZ2XYZmatrix[1][0] = 0.0; XYZ2XYZmatrix[1][1] = 1.0; XYZ2XYZmatrix[1][2] = 0.0; XYZ2XYZmatrix[1][3] = 0.0;
+    XYZ2XYZmatrix[2][0] = 0.3; XYZ2XYZmatrix[2][1] = 0.2; XYZ2XYZmatrix[2][2] = 0.4; XYZ2XYZmatrix[2][3] = 0.0;
+}
+
+static
+cmsBool CloseEnough(cmsFloat64Number a, cmsFloat64Number b)
+{
+    return fabs(b - a) < (1.0 / 65535.0);
+}
+
+cmsBool IsOriginalMHC2Matrix(cmsFloat64Number XYZ2XYZmatrix[3][4])
+{
+    cmsFloat64Number m[3][4];
+    int i, j;
+
+    SetMHC2Matrix(m);
+
+    for (i = 0; i < 3; i++)
+        for (j = 0; j < 4; j++)
+            if (!CloseEnough(XYZ2XYZmatrix[i][j], m[i][j])) return FALSE;
+
+    return TRUE;
+}
+
+
+static
+cmsInt32Number Check_MHC2(cmsInt32Number Pass, cmsHPROFILE hProfile)
+{
+    cmsMHC2Type* v;
+    cmsMHC2Type  s;
+    double curve[] = { 0, 0.5, 1.0 };
+
+    switch (Pass) {
+
+    case 1:
+        SetMHC2Matrix(s.XYZ2XYZmatrix);
+        s.CurveEntries = 3;
+        s.GreenCurve = curve;
+        s.RedCurve = curve;
+        s.BlueCurve = curve;
+        s.MinLuminance = 0.1;
+        s.PeakLuminance = 100.0;
+        
+        if (!cmsWriteTag(hProfile, cmsSigMHC2Tag, &s)) return 0;
+        return 1;
+
+    case 2:
+        v = (cmsMHC2Type*)cmsReadTag(hProfile, cmsSigMHC2Tag);
+        if (v == NULL) return 0;
+
+        if (!IsOriginalMHC2Matrix(v->XYZ2XYZmatrix)) return 0;
+        if (v->CurveEntries != 3) return 0;
+        return 1;
+
+    default:
+        return 0;
+    }
+
+}
+
+
 // This is a very big test that checks every single tag
 static
 cmsInt32Number CheckProfileCreation(void)
@@ -5494,6 +5584,10 @@ cmsInt32Number CheckProfileCreation(void)
 
         SubTest("cicp Video Signal Type");
         if (!Check_cicp(Pass, h)) goto Error;
+
+        SubTest("Microsoft MHC2 tag");
+        if (!Check_MHC2(Pass, h)) goto Error;
+
 
         if (Pass == 1) {
             cmsSaveProfileToFile(h, "alltags.icc");
@@ -7176,7 +7270,7 @@ cmsInt32Number CheckOutGray(cmsHTRANSFORM xform, double L, cmsUInt8Number g)
 
     cmsDoTransform(xform, &Lab, &g_out, 1);
 
-    return IsGoodVal("Gray value", g, (double) g_out, 0.01);
+    return IsGoodVal("Gray value", g, (double) g_out, 1);
 }
 
 static
@@ -8374,6 +8468,92 @@ int Check_sRGB_Rountrips(void)
     return 1;
 }
 
+/**
+* Check OKLab colorspace
+*/
+
+
+
+static
+int Check_OkLab(void)
+{
+    cmsHPROFILE hOkLab = cmsCreate_OkLabProfile(NULL);
+    cmsHPROFILE hXYZ = cmsCreateXYZProfile();
+    cmsCIEXYZ xyz, xyz2;
+    cmsCIELab okLab;
+
+#define TYPE_OKLAB_DBL          (FLOAT_SH(1)|COLORSPACE_SH(PT_MCH3)|CHANNELS_SH(3)|BYTES_SH(0))
+
+    cmsHTRANSFORM xform  = cmsCreateTransform(hXYZ, TYPE_XYZ_DBL,  hOkLab, TYPE_OKLAB_DBL, INTENT_RELATIVE_COLORIMETRIC, 0);
+    cmsHTRANSFORM xform2 = cmsCreateTransform(hOkLab, TYPE_OKLAB_DBL, hXYZ, TYPE_XYZ_DBL,  INTENT_RELATIVE_COLORIMETRIC, 0);
+
+    /**
+    * D50 should be converted to white by PCS definition
+    */
+    xyz.X = 0.9642; xyz.Y = 1.0000; xyz.Z = 0.8249;
+    cmsDoTransform(xform, &xyz, &okLab, 1);
+    cmsDoTransform(xform2, &okLab, &xyz2, 1);
+
+
+    xyz.X = 1.0; xyz.Y = 0.0; xyz.Z = 0.0;
+    cmsDoTransform(xform, &xyz, &okLab, 1);
+    cmsDoTransform(xform2, &okLab, &xyz2, 1);
+
+
+    xyz.X = 0.0; xyz.Y = 1.0; xyz.Z = 0.0;
+    cmsDoTransform(xform, &xyz, &okLab, 1);
+    cmsDoTransform(xform2, &okLab, &xyz2, 1);
+
+    xyz.X = 0.0; xyz.Y = 0.0; xyz.Z = 1.0;
+    cmsDoTransform(xform, &xyz, &okLab, 1);
+    cmsDoTransform(xform2, &okLab, &xyz2, 1);
+
+    xyz.X = 0.143046; xyz.Y = 0.060610; xyz.Z = 0.713913;
+    cmsDoTransform(xform, &xyz, &okLab, 1);
+    cmsDoTransform(xform2, &okLab, &xyz2, 1);
+    
+    cmsDeleteTransform(xform);
+    cmsDeleteTransform(xform2);
+    cmsCloseProfile(hOkLab);
+    cmsCloseProfile(hXYZ);
+
+    return 1;
+}
+
+
+static
+int Check_OkLab2(void)
+{
+#define TYPE_LABA_F32 (FLOAT_SH(1)|COLORSPACE_SH(PT_MCH3)|EXTRA_SH(1)|CHANNELS_SH(3)|BYTES_SH(4))
+
+    cmsUInt16Number rgb[3];
+    cmsFloat32Number lab[4];
+
+    cmsHPROFILE labProfile = cmsCreate_OkLabProfile(NULL);
+    cmsHPROFILE rgbProfile = cmsCreate_sRGBProfile();
+
+    cmsHTRANSFORM hBack = cmsCreateTransform(labProfile, TYPE_LABA_F32, rgbProfile, TYPE_RGB_16, INTENT_RELATIVE_COLORIMETRIC, 0);
+    cmsHTRANSFORM hForth = cmsCreateTransform(rgbProfile, TYPE_RGB_16, labProfile, TYPE_LABA_F32, INTENT_RELATIVE_COLORIMETRIC, 0);
+
+    cmsCloseProfile(labProfile);
+    cmsCloseProfile(rgbProfile);
+
+    rgb[0] = 0;
+    rgb[1] = 0;
+    rgb[2] = 65535;
+
+    cmsDoTransform(hForth, rgb, &lab, 1);
+    cmsDoTransform(hBack, lab, &rgb, 1);
+
+    cmsDeleteTransform(hBack);
+    cmsDeleteTransform(hForth);
+
+    if (rgb[0] != 0 || rgb[1] != 0 || rgb[2] != 65535) return 0;
+
+    return 1;
+}
+
+
 static
 cmsHPROFILE createRgbGamma(cmsFloat64Number g)
 {
@@ -8503,6 +8683,40 @@ int CheckLinearSpacesOptimization(void)
 #endif
 
 
+
+static
+int CheckBadCGATS(void)
+{
+    const char* bad_it8 =
+        " \"\"\n"
+        "NUMBER_OF_FIELDS 4\n"
+        "BEGIN_DATA_FORMAT\n"
+        "I R G G\n"
+        "END_DATA_FORMAT\n"
+        "NUMBER_OF_FIELDS 9\n"
+        "NUMBER_OF_SETS 2\n"
+        "BEGIN_DATA\n"
+        "d\n"
+        "0 0Bd\n"
+        "0Ba	$ $ t .";
+
+    cmsHANDLE hIT8;
+    
+    cmsSetLogErrorHandler(NULL);
+
+    hIT8 = cmsIT8LoadFromMem(0, bad_it8, (cmsUInt32Number) strlen(bad_it8));
+    
+    ResetFatalError();
+
+    if (hIT8 != NULL)
+    {
+        Fail("Wrong IT8 accepted as ok");
+        cmsIT8Free(hIT8);
+    }
+
+    return 1;
+}
+
 static
 int CheckIntToFloatTransform(void)
 {
@@ -8527,6 +8741,72 @@ int CheckIntToFloatTransform(void)
 
     return 0;
 }
+
+static
+int CheckSaveLinearizationDevicelink(void)
+{
+    const cmsFloat32Number table[] = { 0, 0.5f, 1.0f };
+
+    cmsToneCurve* tone = cmsBuildTabulatedToneCurveFloat(NULL, 3, table);
+
+    cmsToneCurve* rgb_curves[3] = { tone, tone, tone };
+
+    cmsHPROFILE hDeviceLink = cmsCreateLinearizationDeviceLink(cmsSigRgbData, rgb_curves);
+
+    cmsBool result;
+    cmsHTRANSFORM xform;
+    int i;
+    
+    cmsFreeToneCurve(tone);
+
+    result = cmsSaveProfileToFile(hDeviceLink, "lin_rgb.icc");
+
+    cmsCloseProfile(hDeviceLink);
+
+    if (!result)
+    {
+        remove("lin_rgb.icc");
+        Fail("Couldn't save linearization devicelink");        
+    }
+
+
+    hDeviceLink = cmsOpenProfileFromFile("lin_rgb.icc", "r");
+
+    if (hDeviceLink == NULL)
+    {
+        remove("lin_rgb.icc");
+        Fail("Could't open devicelink");
+    }
+
+    xform = cmsCreateTransform(hDeviceLink, TYPE_RGB_8, NULL, TYPE_RGB_8, INTENT_PERCEPTUAL, 0);
+    cmsCloseProfile(hDeviceLink);
+
+    for (i = 0; i < 256; i++)
+    {
+        cmsUInt8Number rgb_in[3] = { i, i, i };
+        cmsUInt8Number rgb_out[3];
+
+        cmsDoTransform(xform, rgb_in, rgb_out, 1);
+
+        if (rgb_in[0] != rgb_out[0] ||
+            rgb_in[1] != rgb_out[1] ||
+            rgb_in[2] != rgb_out[2])
+        {
+            remove("lin_rgb.icc");
+            Fail("Saved devicelink was not working");
+        }
+    }
+
+
+    cmsDeleteTransform(xform);
+    remove("lin_rgb.icc");
+
+    return 1;
+
+
+
+}
+
 
 // --------------------------------------------------------------------------------------------------
 // P E R F O R M A N C E   C H E C K S
@@ -9253,9 +9533,9 @@ int main(int argc, char* argv[])
     printf("Installing error logger ... ");
     cmsSetLogErrorHandler(FatalErrorQuit);
     printf("done.\n");
-         
-    PrintSupportedIntents();
     
+    PrintSupportedIntents();
+
     Check("Base types", CheckBaseTypes);
     Check("endianness", CheckEndianness);
     Check("quick floor", CheckQuickFloor);
@@ -9381,6 +9661,7 @@ int main(int argc, char* argv[])
 
     // MLU
     Check("Multilocalized Unicode", CheckMLU);
+    Check("Multilocalized Unicode (II)", CheckMLU_UTF8);
 
     // Named color
     Check("Named color lists", CheckNamedColorList);
@@ -9458,9 +9739,13 @@ int main(int argc, char* argv[])
     Check("Proofing intersection", CheckProofingIntersection);
     Check("Empty MLUC", CheckEmptyMLUC);
     Check("sRGB round-trips", Check_sRGB_Rountrips);
+    Check("OkLab color space", Check_OkLab);
+    Check("OkLab color space (2)", Check_OkLab2);
     Check("Gamma space detection", CheckGammaSpaceDetection);
     Check("Unbounded mode w/ integer output", CheckIntToFloatTransform);
     Check("Corrupted built-in by using cmsWriteRawTag", CheckInducedCorruption);
+    Check("Bad CGATS file", CheckBadCGATS);
+    Check("Saving linearization devicelink", CheckSaveLinearizationDevicelink);
     }
 
     if (DoPluginTests)

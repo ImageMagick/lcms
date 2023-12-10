@@ -19,11 +19,11 @@
 //
 //---------------------------------------------------------------------------------
 
-// Optimization for matrix-shaper in 15 bits. Numbers are operated in 1.15 usigned, 
+// Optimization for matrix-shaper in 15 bits. Numbers are operated in 1.15 unsigned, 
 
 #include "fast_float_internal.h"
 
-// An storage capable to keep 1.15 signed and some extra precission. 
+// An storage capable to keep 1.15 signed and some extra precision. 
 // Actually I use 32 bits integer (signed)
 typedef cmsInt32Number cmsS1Fixed15Number;   
 
@@ -337,7 +337,7 @@ cmsBool OptimizeMatrixShaper15(_cmsTransform2Fn* TransformFn,
               _cmsStageToneCurvesData* mpeC2 = (_cmsStageToneCurvesData*)cmsStageData(Curve2);
 
               // In this particular optimization, cache does not help as it takes more time to deal with 
-              // the cache that with the pixel handling
+              // the cache than with the pixel handling
               *dwFlags |= cmsFLAGS_NOCACHE;
 
               // Setup the optimizarion routines
