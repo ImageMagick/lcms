@@ -11,6 +11,9 @@ _LCMSLIB_
 include
 src
 
+[INCLUDES]
+include
+
 [CONFIG_DEFINE]
 /*
   Define to use the "little" Color Management System (LCMS) library
