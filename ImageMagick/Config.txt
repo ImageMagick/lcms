@@ -1,0 +1,19 @@
+[DLL]
+
+[LICENSE]
+LICENSE
+
+[DEFINES]
+__CONSOLE__
+_LCMSLIB_
+
+[DIRECTORIES]
+include
+src
+
+[CONFIG_DEFINE]
+/*
+  Define to use the "little" Color Management System (LCMS) library
+*/
+#define MAGICKCORE_LCMS_DELEGATE
+#define MAGICKCORE_HAVE_LCMS2_H
