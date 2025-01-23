@@ -1,2 +1,2 @@
 https://github.com/mm2/Little-CMS/releases
-releases/tag/lcms\K([0-9]+\.[0-9]+[\.]*[0-9]*)
+releases/tag/lcms\K([0-9]+\.[0-9]+[\.]*[0-9]*)\b
