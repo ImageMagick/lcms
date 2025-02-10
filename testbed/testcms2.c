@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2023 Marti Maria Saguer
+//  Copyright (c) 1998-2024 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -3597,7 +3597,7 @@ cmsInt32Number CheckMLU(void)
     // Now for performance, allocate an empty struct
     mlu = cmsMLUalloc(DbgThread(), 0);
 
-    // Fill it with several thousands of different lenguages
+    // Fill it with several thousands of different languages
     for (i=0; i < 4096; i++) {
 
         char Lang[3];
@@ -5201,7 +5201,6 @@ cmsInt32Number CheckVCGT(cmsInt32Number Pass,  cmsHPROFILE hProfile)
 
 
 // Only one of the two following may be used, as they share the same tag
-static
 cmsInt32Number CheckDictionary16(cmsInt32Number Pass,  cmsHPROFILE hProfile)
 {
       cmsHANDLE hDict;
@@ -5245,9 +5244,6 @@ cmsInt32Number CheckDictionary16(cmsInt32Number Pass,  cmsHPROFILE hProfile)
     return 0;
 }
 
-
-
-static
 cmsInt32Number CheckDictionary24(cmsInt32Number Pass,  cmsHPROFILE hProfile)
 {
     cmsHANDLE hDict;
@@ -6549,7 +6545,7 @@ int CheckRGBPrimaries(void)
     cmsXYZ2xyY(&tripxyY.Green, &tripXYZ.Green);
     cmsXYZ2xyY(&tripxyY.Blue, &tripXYZ.Blue);
 
-    /* valus were taken from
+    /* values were taken from
     http://en.wikipedia.org/wiki/RGB_color_spaces#Specifications */
 
     if (!IsGoodFixed15_16("xRed", tripxyY.Red.x, 0.64) ||
@@ -8223,6 +8219,34 @@ int CheckPlanar8opt(void)
 }
 
 /**
+* Bug reported from float32 to uint16 planar
+*/
+#define TYPE_RGB_FLT_PLANAR   (FLOAT_SH(1)|COLORSPACE_SH(PT_RGB)|CHANNELS_SH(3)|BYTES_SH(4)|PLANAR_SH(1))
+
+static
+int CheckPlanarFloat2int(void)
+{    
+    cmsHPROFILE sRGB = cmsCreate_sRGBProfile();
+
+    cmsHTRANSFORM transform = cmsCreateTransform(sRGB, TYPE_RGB_FLT_PLANAR,
+        sRGB, TYPE_RGB_16_PLANAR,INTENT_PERCEPTUAL, 0);
+
+    const cmsFloat32Number input[] = { 0.0f, 0.4f, 0.8f,  0.1f, 0.5f, 0.9f,  0.2f, 0.6f, 1.0f,   0.3f, 0.7f, 1.0f };
+    cmsUInt16Number output[3*4] = { 0 };
+
+    cmsDoTransform(transform, input, output, 4);
+
+    cmsDeleteTransform(transform);    
+    cmsCloseProfile(sRGB);
+
+    return 1;
+}
+
+
+
+
+
+/**
 * Bug reported & fixed. Thanks to Kornel Lesinski for spotting this.
 */
 static
@@ -8471,9 +8495,6 @@ int Check_sRGB_Rountrips(void)
 /**
 * Check OKLab colorspace
 */
-
-
-
 static
 int Check_OkLab(void)
 {
@@ -8775,7 +8796,7 @@ int CheckSaveLinearizationDevicelink(void)
     if (hDeviceLink == NULL)
     {
         remove("lin_rgb.icc");
-        Fail("Could't open devicelink");
+        Fail("Couldn't open devicelink");
     }
 
     xform = cmsCreateTransform(hDeviceLink, TYPE_RGB_8, NULL, TYPE_RGB_8, INTENT_PERCEPTUAL, 0);
@@ -8802,9 +8823,45 @@ int CheckSaveLinearizationDevicelink(void)
     remove("lin_rgb.icc");
 
     return 1;
+}
 
+static
+int CheckGamutCheckFloats(void)
+{
 
+    cmsUInt16Number alarms[16] = { 0x0f0f,3,4,5,6,7,8,9,10 };
+    
 
+    cmsHPROFILE hLab = cmsCreateLab4Profile(NULL);
+    cmsHPROFILE hNull = cmsCreateNULLProfile();
+    cmsHPROFILE hsRGB = cmsCreate_sRGBProfile();
+
+    cmsHTRANSFORM xfrm = cmsCreateProofingTransform(hLab,
+        TYPE_Lab_DBL, hNull, TYPE_GRAY_8, hsRGB,
+        INTENT_RELATIVE_COLORIMETRIC, INTENT_ABSOLUTE_COLORIMETRIC,
+        cmsFLAGS_GAMUTCHECK);
+
+    cmsCloseProfile(hLab);
+    cmsCloseProfile(hNull);
+    cmsCloseProfile(hsRGB);
+
+    cmsCIELab Lab = { 50, -125, 125 };
+    cmsCIELab Lab2 = { 50, -10, 12 };
+
+    cmsUInt8Number gamut;
+
+    cmsSetAlarmCodes(alarms);
+
+    cmsDoTransform(xfrm, &Lab, &gamut, 1);  // Gives the alarm != 0
+    if (gamut != 0x0f)
+        Fail("Gamut check not good");
+
+    cmsDoTransform(xfrm, &Lab2, &gamut, 1);
+    if (gamut != 0)
+        Fail("Gamut check zero");
+
+    cmsDeleteTransform(xfrm);
+    return 1;
 }
 
 
@@ -9497,13 +9554,17 @@ void PrintSupportedIntents(void)
 
 // ---------------------------------------------------------------------------------------
 
+
 int main(int argc, char* argv[])
 {
     cmsInt32Number Exhaustive = 0;
     cmsInt32Number DoSpeedTests = 1;
     cmsInt32Number DoCheckTests = 1;
     cmsInt32Number DoPluginTests = 1;
+
+#ifdef CMS_IS_WINDOWS_
     cmsInt32Number DoZooTests = 0;
+#endif
 
 #ifdef _MSC_VER
     _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
@@ -9533,7 +9594,7 @@ int main(int argc, char* argv[])
     printf("Installing error logger ... ");
     cmsSetLogErrorHandler(FatalErrorQuit);
     printf("done.\n");
-    
+        
     PrintSupportedIntents();
 
     Check("Base types", CheckBaseTypes);
@@ -9733,6 +9794,7 @@ int main(int argc, char* argv[])
     Check("Set free a tag", CheckRemoveTag);
     Check("Matrix simplification", CheckMatrixSimplify);
     Check("Planar 8 optimization", CheckPlanar8opt);
+    Check("Planar float to int16", CheckPlanarFloat2int);
     Check("Swap endian feature", CheckSE);
     Check("Transform line stride RGB", CheckTransformLineStride);
     Check("Forged MPE profile", CheckForgedMPE);
@@ -9746,6 +9808,7 @@ int main(int argc, char* argv[])
     Check("Corrupted built-in by using cmsWriteRawTag", CheckInducedCorruption);
     Check("Bad CGATS file", CheckBadCGATS);
     Check("Saving linearization devicelink", CheckSaveLinearizationDevicelink);
+    Check("Gamut check on floats", CheckGamutCheckFloats);
     }
 
     if (DoPluginTests)
@@ -9765,7 +9828,7 @@ int main(int argc, char* argv[])
         Check("Rendering intent plugin", CheckIntentPlugin);
         Check("Full transform plugin",   CheckTransformPlugin);
         Check("Mutex plugin",            CheckMutexPlugin);
-       
+        Check("Double from float",       CheckMethodPackDoublesFromFloat);       
     }
 
 

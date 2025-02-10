@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System, fast floating point extensions
-//  Copyright (c) 1998-2023 Marti Maria Saguer, all rights reserved
+//  Copyright (c) 1998-2024 Marti Maria Saguer, all rights reserved
 //
 //
 // This program is free software: you can redistribute it and/or modify
@@ -112,7 +112,8 @@ void PerformanceEval16(struct _cmstransform_struct *CMMcargo,
 
        int    in16, out16;  // Used by macros!
 
-       cmsUInt32Number nalpha, strideIn, strideOut;
+       cmsUInt32Number nalpha;
+       size_t strideIn, strideOut;
           
        cmsUInt32Number dwInFormat = cmsGetTransformInputFormat((cmsHTRANSFORM)CMMcargo);
        cmsUInt32Number dwOutFormat = cmsGetTransformOutputFormat((cmsHTRANSFORM)CMMcargo);

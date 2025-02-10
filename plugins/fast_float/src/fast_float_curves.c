@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System, fast floating point extensions
-//  Copyright (c) 1998-2023 Marti Maria Saguer, all rights reserved
+//  Copyright (c) 1998-2024 Marti Maria Saguer, all rights reserved
 //
 //
 // This program is free software: you can redistribute it and/or modify
@@ -86,12 +86,12 @@ static void FastEvaluateFloatRGBCurves(struct _cmstransform_struct *CMMcargo,
     CurvesFloatData* Data = (CurvesFloatData*)  _cmsGetTransformUserData(CMMcargo);
 
     cmsUInt32Number nchans, nalpha;
-    cmsUInt32Number strideIn, strideOut;
+    size_t strideIn, strideOut;
 
     _cmsComputeComponentIncrements(InputFormat,  Stride->BytesPerPlaneIn, &nchans, &nalpha, SourceStartingOrder, SourceIncrements);
     _cmsComputeComponentIncrements(OutputFormat, Stride->BytesPerPlaneOut, &nchans, &nalpha, DestStartingOrder, DestIncrements);
 
-    if (!(_cmsGetTransformFlags((cmsHTRANSFORM)CMMcargo) & cmsFLAGS_COPY_ALPHA))
+    if (!(_cmsGetTransformFlags(CMMcargo) & cmsFLAGS_COPY_ALPHA))
         nalpha = 0;
 
 
@@ -166,12 +166,12 @@ static void FastFloatRGBIdentity(struct _cmstransform_struct *CMMcargo,
     cmsUInt32Number OutputFormat = cmsGetTransformOutputFormat((cmsHTRANSFORM) CMMcargo);
   
     cmsUInt32Number nchans, nalpha;
-    cmsUInt32Number strideIn, strideOut;
+    size_t strideIn, strideOut;
 
     _cmsComputeComponentIncrements(InputFormat,  Stride->BytesPerPlaneIn,  &nchans, &nalpha, SourceStartingOrder, SourceIncrements);
     _cmsComputeComponentIncrements(OutputFormat, Stride->BytesPerPlaneOut, &nchans, &nalpha, DestStartingOrder, DestIncrements);
 
-    if (!(_cmsGetTransformFlags((cmsHTRANSFORM)CMMcargo) & cmsFLAGS_COPY_ALPHA))
+    if (!(_cmsGetTransformFlags(CMMcargo) & cmsFLAGS_COPY_ALPHA))
         nalpha = 0;
 
     strideIn = strideOut = 0;
@@ -245,12 +245,12 @@ static void FastEvaluateFloatGrayCurves(struct _cmstransform_struct* CMMcargo,
     CurvesFloatData* Data = (CurvesFloatData*)_cmsGetTransformUserData(CMMcargo);
 
     cmsUInt32Number nchans, nalpha;
-    cmsUInt32Number strideIn, strideOut;
+    size_t strideIn, strideOut;
 
     _cmsComputeComponentIncrements(InputFormat, Stride->BytesPerPlaneIn, &nchans, &nalpha, SourceStartingOrder, SourceIncrements);
     _cmsComputeComponentIncrements(OutputFormat, Stride->BytesPerPlaneIn, &nchans, &nalpha, DestStartingOrder, DestIncrements);
 
-    if (!(_cmsGetTransformFlags((cmsHTRANSFORM)CMMcargo) & cmsFLAGS_COPY_ALPHA))
+    if (!(_cmsGetTransformFlags(CMMcargo) & cmsFLAGS_COPY_ALPHA))
         nalpha = 0;
 
     strideIn = strideOut = 0;
@@ -308,12 +308,12 @@ static void FastFloatGrayIdentity(struct _cmstransform_struct* CMMcargo,
     cmsUInt32Number OutputFormat = cmsGetTransformOutputFormat((cmsHTRANSFORM)CMMcargo);
 
     cmsUInt32Number nchans, nalpha;
-    cmsUInt32Number strideIn, strideOut;
+    size_t strideIn, strideOut;
 
     _cmsComputeComponentIncrements(InputFormat, Stride->BytesPerPlaneIn, &nchans, &nalpha, SourceStartingOrder, SourceIncrements);
     _cmsComputeComponentIncrements(OutputFormat, Stride->BytesPerPlaneOut, &nchans, &nalpha, DestStartingOrder, DestIncrements);
 
-    if (!(_cmsGetTransformFlags((cmsHTRANSFORM)CMMcargo) & cmsFLAGS_COPY_ALPHA))
+    if (!(_cmsGetTransformFlags(CMMcargo) & cmsFLAGS_COPY_ALPHA))
         nalpha = 0;
 
     strideIn = strideOut = 0;

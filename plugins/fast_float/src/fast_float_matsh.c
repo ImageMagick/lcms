@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System, fast floating point extensions
-//  Copyright (c) 1998-2023 Marti Maria Saguer, all rights reserved
+//  Copyright (c) 1998-2024 Marti Maria Saguer, all rights reserved
 //
 //
 // This program is free software: you can redistribute it and/or modify
@@ -163,12 +163,12 @@ void MatShaperFloat(struct _cmstransform_struct* CMMcargo,
     cmsUInt8Number* aout = NULL;
     
     cmsUInt32Number nchans, nalpha;
-    cmsUInt32Number strideIn, strideOut;
+    size_t strideIn, strideOut;
 
     _cmsComputeComponentIncrements(cmsGetTransformInputFormat((cmsHTRANSFORM)CMMcargo), Stride->BytesPerPlaneIn, &nchans, &nalpha, SourceStartingOrder, SourceIncrements);
     _cmsComputeComponentIncrements(cmsGetTransformOutputFormat((cmsHTRANSFORM)CMMcargo), Stride->BytesPerPlaneOut, &nchans, &nalpha, DestStartingOrder, DestIncrements);
 
-    if (!(_cmsGetTransformFlags((cmsHTRANSFORM)CMMcargo) & cmsFLAGS_COPY_ALPHA))
+    if (!(_cmsGetTransformFlags(CMMcargo) & cmsFLAGS_COPY_ALPHA))
         nalpha = 0;
 
     strideIn = strideOut = 0;

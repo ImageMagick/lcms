@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2023 Marti Maria Saguer
+//  Copyright (c) 1998-2024 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -72,9 +72,9 @@ cmsInt32Number CheckAllocContext(void)
      
 
 
-     cmsDeleteContext(c1);  // Should be deleted by using nomal malloc
+     cmsDeleteContext(c1);  // Should be deleted by using normal malloc
      cmsDeleteContext(c2);  // Should be deleted by using debug malloc
-     cmsDeleteContext(c3);  // Should be deleted by using nomal malloc
+     cmsDeleteContext(c3);  // Should be deleted by using normal malloc
      cmsDeleteContext(c4);  // Should be deleted by using debug malloc
 
      return 1;
@@ -762,6 +762,8 @@ cmsInt32Number CheckFormattersPlugin(void)
 #define SigIntType      ((cmsTagTypeSignature)  0x74747448)   //   'tttH'
 #define SigInt          ((cmsTagSignature)  0x74747448)       //   'tttH'
 
+#define SigInt32        ((cmsTagSignature)  0x74747449)       //   'tttI'
+
 static
 void *Type_int_Read(struct _cms_typehandler_struct* self,
  			    cmsIOHANDLER* io, 
@@ -803,9 +805,16 @@ static cmsPluginTag HiddenTagPluginSample = {
     SigInt,  {  1, 1, { SigIntType }, NULL }  
 };
 
+static cmsPluginTag HiddenTagPluginSample2 = {
+
+    { cmsPluginMagicNumber, 2060, cmsPluginTagSig, (cmsPluginBase*) &HiddenTagPluginSample},
+    SigInt32,  {  1, 1, { cmsSigUInt32ArrayType }, NULL }
+};
+
+
 static cmsPluginTagType TagTypePluginSample = {
 
-     { cmsPluginMagicNumber, 2060, cmsPluginTagTypeSig,  (cmsPluginBase*) &HiddenTagPluginSample},
+     { cmsPluginMagicNumber, 2060, cmsPluginTagTypeSig,  (cmsPluginBase*) &HiddenTagPluginSample2},
      { SigIntType, Type_int_Read, Type_int_Write, Type_int_Dup, Type_int_Free, NULL }        
 };
 
@@ -817,6 +826,7 @@ cmsInt32Number CheckTagTypePlugin(void)
     cmsContext cpy2 = NULL;
     cmsHPROFILE h = NULL;
     cmsUInt32Number myTag = 1234;
+    cmsUInt32Number myTag32 = 5678;
     cmsUInt32Number rc = 0;
     char* data = NULL;
     cmsUInt32Number *ptr = NULL;
@@ -843,6 +853,12 @@ cmsInt32Number CheckTagTypePlugin(void)
         Fail("Plug-in failed");
         goto Error;
     }
+
+    if (!cmsWriteTag(h, SigInt32, &myTag32)) {
+        Fail("Plug-in failed");
+        goto Error;
+    }
+
 
     rc = cmsSaveProfileToMem(h, NULL, &clen);
     if (!rc) {
@@ -880,6 +896,14 @@ cmsInt32Number CheckTagTypePlugin(void)
         goto Error;
     }
 
+    ptr = (cmsUInt32Number*)cmsReadTag(h, SigInt32);
+    if (ptr != NULL) {
+
+        Fail("read tag/context switching failed");
+        goto Error;
+    }
+
+
     cmsCloseProfile(h);
     ResetFatalError();
 
@@ -899,6 +923,15 @@ cmsInt32Number CheckTagTypePlugin(void)
     }
    
     rc = (*ptr == 1234);
+
+    ptr = (cmsUInt32Number*)cmsReadTag(h, SigInt32);
+    if (ptr == NULL) {
+
+        Fail("read tag/context switching failed (2)");
+        goto Error;
+    }
+
+    rc &= (*ptr == 5678);
 
     cmsCloseProfile(h);
 
@@ -1504,7 +1537,7 @@ cmsInt32Number CheckMethodPackDoublesFromFloat(void)
     if (l_pFakeProfileLAB == NULL)
         return 0;
 
-    OutputCMYKProfile = cmsOpenProfileFromFileTHR(ctx, "TestCLT.icc", "r");
+    OutputCMYKProfile = cmsOpenProfileFromFileTHR(ctx, "test2.icc", "r");
 
     if (OutputCMYKProfile == NULL)
         return 0;
@@ -1536,12 +1569,15 @@ cmsInt32Number CheckMethodPackDoublesFromFloat(void)
     memset(l_D_OutputColorArrayBlue, 0, sizeof(l_D_OutputColorArrayBlue));
 
     cmsDoTransform(xform, &LabInBlack, l_D_OutputColorArrayBlack, 1);
-    cmsDoTransform(xform, &LabInBlue, l_D_OutputColorArrayBlue, 1);
-
+    cmsDoTransform(xform, &LabInBlue, l_D_OutputColorArrayBlue, 1);    
 
     cmsDeleteTransform(xform);
     cmsDeleteContext(ctx);
     
+    if (l_D_OutputColorArrayBlack[0] < 85 ||
+        l_D_OutputColorArrayBlue[0] < 90)
+        Fail("Ink amount is not right");
+
     return 1;
 }
 
