@@ -28,6 +28,15 @@
 
 #ifndef _lcms2_H
 
+#ifdef _MSC_VER
+#  if defined(_DLL) && !defined(_LIB)
+#    define CMS_DLL 1
+#    if defined(_LCMSLIB_)
+#      define CMS_DLL_BUILD 1
+#    endif
+#  endif
+#endif
+
 // ********** Configuration toggles ****************************************
 
 // Uncomment this one if you are using big endian machines
