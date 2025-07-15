@@ -1,4 +1,4 @@
-[DLL]
+[DYNAMIC_LIBRARY]
 
 [LICENSE]
 LICENSE
@@ -7,14 +7,23 @@ LICENSE
 __CONSOLE__
 _LCMSLIB_
 
-[DIRECTORIES]
-include
-src
-
 [INCLUDES]
 include
 
-[CONFIG_DEFINE]
+[INCLUDE_ARTIFACTS]
+include -> .
+
+[EXCLUDES]
+bin\
+doc\
+fuzzers\
+Lib\
+plugins\
+testbed\
+utils\
+
+
+[MAGICK_BASECONFIG_DEFINE]
 /*
   Define to use the "little" Color Management System (LCMS) library
 */
