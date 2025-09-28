@@ -1,5 +1,23 @@
 [DYNAMIC_LIBRARY]
 
+[VERSION]
+2.17.0
+
+[RELEASE_DATE]
+2025-02-09
+
+[PRODUCT_NAME]
+lcms
+
+[COMPANY_NAME]
+Little CMS
+
+[URL]
+https://www.littlecms.com
+
+[COPYRIGHT]
+Copyright (c) 1998-2014 Marti Maria Saguer
+
 [LICENSE_FILE]
 LICENSE
 
