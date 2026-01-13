@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2025 Marti Maria Saguer
+//  Copyright (c) 1998-2026 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -23,19 +23,10 @@
 //
 //---------------------------------------------------------------------------------
 //
-// Version 2.17
+// Version 2.18
 //
 
 #ifndef _lcms2_H
-
-#ifdef _MSC_VER
-#  if defined(_DLL) && !defined(_LIB)
-#    define CMS_DLL 1
-#    if defined(_LCMSLIB_)
-#      define CMS_DLL_BUILD 1
-#    endif
-#  endif
-#endif
 
 // ********** Configuration toggles ****************************************
 
@@ -96,7 +87,7 @@ extern "C" {
 #endif
 
 // Version/release
-#define LCMS_VERSION        2170
+#define LCMS_VERSION        2180
 
 // I will give the chance of redefining basic types for compilers that are not fully C99 compliant
 #ifndef CMS_BASIC_TYPES_ALREADY_DEFINED
@@ -167,7 +158,11 @@ typedef double               cmsFloat64Number;
 #endif
 
 // Handle "register" keyword
+#if defined(CMS_NO_REGISTER_KEYWORD)
 #  define CMSREGISTER
+#else
+#  define CMSREGISTER register
+#endif
 
 // In the case 64 bit numbers are not supported by the compiler
 #ifdef CMS_DONT_USE_INT64
