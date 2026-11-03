@@ -82,7 +82,8 @@ cmsInt32Number CheckIntentPlugin(void);
 cmsInt32Number CheckTransformPlugin(void);
 cmsInt32Number CheckMutexPlugin(void);
 cmsInt32Number CheckMethodPackDoublesFromFloat(void);
-
+cmsInt32Number CheckHeaderPlugin(void);
+cmsInt32Number CheckProfileUserData(void);
 
 // Zoo
 void CheckProfileZOO(void);

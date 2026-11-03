@@ -382,3 +382,5 @@ cmsGetTransformPipeline                  =  cmsGetTransformPipeline
 cmsGetTransformGamutCheckPipeline        =  cmsGetTransformGamutCheckPipeline
 cmsGetTransformInputColorants            =  cmsGetTransformInputColorants
 cmsGetTransformOutputColorants           =  cmsGetTransformOutputColorants
+_cmsSetProfileUserData                   =  _cmsSetProfileUserData
+_cmsGetProfileUserData                   =  _cmsGetProfileUserData

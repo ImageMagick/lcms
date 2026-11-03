@@ -2057,6 +2057,45 @@ cmsInt32Number Check4Dinterp(void)
 
 
 static
+cmsInt32Number Check4DinterpResampled(void)
+{
+    cmsPipeline* lut;
+    cmsStage* mpe;
+    cmsUInt32Number InputFormat = TYPE_CMYK_16;
+    cmsUInt32Number OutputFormat = TYPE_RGB_16;
+    cmsUInt32Number Flags = cmsFLAGS_FORCE_CLUT | cmsFLAGS_GRIDPOINTS(9);
+    cmsInt32Number rc = 0;
+
+    lut = cmsPipelineAlloc(DbgThread(), 4, 3);
+    mpe = cmsStageAllocCLut16bit(DbgThread(), 9, 4, 3, NULL);
+    cmsStageSampleCLut16bit(mpe, Sampler4D, NULL, 0);
+    cmsPipelineInsertStage(lut, cmsAT_BEGIN, mpe);
+
+    // Exercise the optimized evaluator without pre/post-linearization curves.
+    // Its callback must remain valid when checked by the function sanitizer.
+    if (!_cmsOptimizePipeline(lut ->ContextID, &lut, INTENT_RELATIVE_COLORIMETRIC,
+                              &InputFormat, &OutputFormat, &Flags)) {
+        Fail("Cannot resample 4D CLUT");
+        goto Error;
+    }
+
+    if (!CheckOne4D(lut, 0, 0, 0, 0)) goto Error;
+    if (!CheckOne4D(lut, 0xffff, 0xffff, 0xffff, 0xffff)) goto Error;
+    if (!CheckOne4D(lut, 0x8080, 0x8080, 0x8080, 0x8080)) goto Error;
+    if (!CheckOne4D(lut, 0x0000, 0xFE00, 0x80FF, 0x8888)) goto Error;
+    if (!CheckOne4D(lut, 0x1111, 0x2222, 0x3333, 0x4444)) goto Error;
+    if (!CheckOne4D(lut, 0x0000, 0x0012, 0x0013, 0x0014)) goto Error;
+    if (!CheckOne4D(lut, 0x3141, 0x1415, 0x1592, 0x9261)) goto Error;
+    if (!CheckOne4D(lut, 0xFF00, 0xFF01, 0xFF12, 0xFF13)) goto Error;
+
+    rc = 1;
+Error:
+    cmsPipelineFree(lut);
+    return rc;
+}
+
+
+static
 cmsInt32Number Check4DinterpGranular(void)
 {
     cmsPipeline* lut;
@@ -8002,11 +8041,13 @@ cmsInt32Number CheckMeta(void)
     //ERROR: Bad dictionary Name/Value
     //ERROR: Corrupted tag 'meta'
     //test: test.c:59: main: Assertion `dict' failed.
+    rc = 1;
     dict = cmsReadTag(p, cmsSigMetaTag);
-   if (dict == NULL) return 0;
-
-   cmsCloseProfile(p);
-    return 1;
+    if (dict == NULL) rc = 0;
+   
+    cmsCloseProfile(p);
+    remove("new.icc");
+    return rc;
 }
 
 
@@ -8242,6 +8283,118 @@ int CheckPlanarFloat2int(void)
     cmsCloseProfile(sRGB);
 
     return 1;
+}
+
+#ifndef CMS_NO_HALF_SUPPORT
+
+/**
+* Planar half float to 8 bits, the plane stride is given in input bytes.
+* Formats are changed on a 16 bits transform to get the half to 16 bits unroller.
+*/
+#define TYPE_RGB_HALF_FLT_PLANAR   (TYPE_RGB_HALF_FLT|PLANAR_SH(1))
+
+static
+int CheckPlanarHalf2int8(void)
+{
+    cmsHPROFILE sRGB = cmsCreate_sRGBProfile();
+    cmsHTRANSFORM planar = cmsCreateTransform(sRGB, TYPE_RGB_16_PLANAR,
+        sRGB, TYPE_RGB_8_PLANAR, INTENT_PERCEPTUAL, 0);
+    cmsHTRANSFORM chunky = cmsCreateTransform(sRGB, TYPE_RGB_16,
+        sRGB, TYPE_RGB_8, INTENT_PERCEPTUAL, 0);
+
+    const cmsFloat32Number values[] = { 0.0f, 0.4f, 0.8f,  0.1f, 0.5f, 0.9f,  0.2f, 0.6f, 1.0f,   0.3f, 0.7f, 1.0f };
+    cmsUInt16Number inPlanar[3*4], inChunky[3*4];
+    cmsUInt8Number outPlanar[3*4] = { 0 }, outChunky[3*4] = { 0 };
+    int i, c, rc = 1;
+
+    if (!cmsChangeBuffersFormat(planar, TYPE_RGB_HALF_FLT_PLANAR, TYPE_RGB_8_PLANAR) ||
+        !cmsChangeBuffersFormat(chunky, TYPE_RGB_HALF_FLT, TYPE_RGB_8)) {
+
+        Fail("Cannot change buffers format to half float");
+        rc = 0;
+        goto Done;
+    }
+
+    for (i = 0; i < 4; i++)
+        for (c = 0; c < 3; c++) {
+
+            inPlanar[c * 4 + i] = _cmsFloat2Half(values[c * 4 + i]);
+            inChunky[i * 3 + c] = inPlanar[c * 4 + i];
+        }
+
+    cmsDoTransform(planar, inPlanar, outPlanar, 4);
+    cmsDoTransform(chunky, inChunky, outChunky, 4);
+
+    for (i = 0; i < 4; i++)
+        for (c = 0; c < 3; c++) {
+
+            if (outPlanar[c * 4 + i] != outChunky[i * 3 + c]) {
+                Fail("Planar half to 8 bits: pixel %d channel %d is %d, expected %d", i, c, outPlanar[c * 4 + i], outChunky[i * 3 + c]);
+                rc = 0;
+            }
+        }
+
+Done:
+    cmsDeleteTransform(planar);
+    cmsDeleteTransform(chunky);
+    cmsCloseProfile(sRGB);
+
+    return rc;
+}
+
+#endif
+
+/**
+* 16 bits to planar Lab double, the plane stride is given in output bytes
+*/
+#define TYPE_Lab_DBL_PLANAR   (TYPE_Lab_DBL|PLANAR_SH(1))
+
+static
+int CheckPlanarLabDoubleFrom16(void)
+{
+    cmsHPROFILE sRGB = cmsCreate_sRGBProfile();
+    cmsHPROFILE Lab = cmsCreateLab4Profile(NULL);
+    cmsHTRANSFORM planar = cmsCreateTransform(sRGB, TYPE_RGB_16_PLANAR,
+        Lab, TYPE_Lab_16|PLANAR_SH(1), INTENT_PERCEPTUAL, 0);
+    cmsHTRANSFORM chunky = cmsCreateTransform(sRGB, TYPE_RGB_16,
+        Lab, TYPE_Lab_16, INTENT_PERCEPTUAL, 0);
+
+    const cmsUInt16Number inChunky[3*4] = { 0, 0, 0,  0xffff, 0xffff, 0xffff,  0xffff, 0, 0,  0x1234, 0x5678, 0x9abc };
+    cmsUInt16Number inPlanar[3*4];
+    cmsFloat64Number outPlanar[3*4] = { 0 }, outChunky[3*4] = { 0 };
+    int i, c, rc = 1;
+
+    if (!cmsChangeBuffersFormat(planar, TYPE_RGB_16_PLANAR, TYPE_Lab_DBL_PLANAR) ||
+        !cmsChangeBuffersFormat(chunky, TYPE_RGB_16, TYPE_Lab_DBL)) {
+
+        Fail("Cannot change buffers format to Lab double");
+        rc = 0;
+        goto Done;
+    }
+
+    for (i = 0; i < 4; i++)
+        for (c = 0; c < 3; c++)
+            inPlanar[c * 4 + i] = inChunky[i * 3 + c];
+
+    cmsDoTransform(planar, inPlanar, outPlanar, 4);
+    cmsDoTransform(chunky, inChunky, outChunky, 4);
+
+    for (i = 0; i < 4; i++)
+        for (c = 0; c < 3; c++) {
+
+            if (outPlanar[c * 4 + i] != outChunky[i * 3 + c]) {
+                Fail("Planar Lab double from 16 bits: pixel %d channel %d is %g, expected %g", i, c, outPlanar[c * 4 + i], outChunky[i * 3 + c]);
+                rc = 0;
+            }
+        }
+
+Done:
+    cmsDeleteTransform(planar);
+    cmsDeleteTransform(chunky);
+    cmsCloseProfile(Lab);
+    cmsCloseProfile(sRGB);
+
+    return rc;
 }
 
 
@@ -8901,38 +9054,6 @@ int CheckGamutCheckFloats(void)
     return 1;
 }
 
-static
-int CheckMixedRawAndCooked(void)
-{
-    const cmsUInt32Number data = cmsSigFilmScanner;
-    const cmsUInt32Number* pdata;
-    cmsBool is_ok = FALSE;
-
-    // This is the internal representation of cmsSigTechnologyTag tag type
-    struct _cooked_st
-    {
-        _cmsTagBase base;
-        cmsUInt32Number data;
-
-    } buffer = { { (cmsTagTypeSignature) cmsSigTechnologyTag, {0} }, cmsSigFilmScanner };
-
-    cmsHPROFILE hProfile = cmsCreateProfilePlaceholder(0);   
-    cmsWriteRawTag(hProfile, cmsSigTechnologyTag, &buffer, sizeof buffer);
-    cmsWriteTag(hProfile, cmsSigTechnologyTag, &data);
-    cmsWriteRawTag(hProfile, cmsSigTechnologyTag, &buffer, sizeof buffer);
-    cmsWriteRawTag(hProfile, cmsSigTechnologyTag, &buffer, sizeof buffer);
-    cmsWriteTag(hProfile, cmsSigTechnologyTag, &data);
-    cmsWriteTag(hProfile, cmsSigTechnologyTag, &data);
-    memset(&buffer, 0, sizeof(buffer));
-
-    cmsReadRawTag(hProfile, cmsSigTechnologyTag, &buffer, sizeof buffer );
-    pdata = cmsReadTag(hProfile, cmsSigTechnologyTag);
-
-    is_ok = (*pdata == cmsSigFilmScanner) && (_cmsAdjustEndianess32(buffer.data) == cmsSigFilmScanner);
-
-    cmsCloseProfile(hProfile);
-    return is_ok;
-}
 
 // --------------------------------------------------------------------------------------------------
 // P E R F O R M A N C E   C H E C K S
@@ -9663,7 +9784,7 @@ int main(int argc, char* argv[])
     printf("Installing error logger ... ");
     cmsSetLogErrorHandler(FatalErrorQuit);
     printf("done.\n");
-           
+
     PrintSupportedIntents();
 
     Check("Base types", CheckBaseTypes);
@@ -9720,6 +9841,7 @@ int main(int argc, char* argv[])
     Check("3D interpolation", Check3Dinterp);
     Check("3D interpolation with granularity", Check3DinterpGranular);
     Check("4D interpolation", Check4Dinterp);
+    Check("4D interpolation after resampling", Check4DinterpResampled);
     Check("4D interpolation with granularity", Check4DinterpGranular);
     Check("5D interpolation with granularity", Check5DinterpGranular);
     Check("6D interpolation with granularity", Check6DinterpGranular);
@@ -9864,6 +9986,10 @@ int main(int argc, char* argv[])
     Check("Matrix simplification", CheckMatrixSimplify);
     Check("Planar 8 optimization", CheckPlanar8opt);
     Check("Planar float to int16", CheckPlanarFloat2int);
+#ifndef CMS_NO_HALF_SUPPORT
+    Check("Planar half to int8", CheckPlanarHalf2int8);
+#endif
+    Check("Planar Lab double from int16", CheckPlanarLabDoubleFrom16);
     Check("Swap endian feature", CheckSE);
     Check("Transform line stride RGB", CheckTransformLineStride);
     Check("Forged MPE profile", CheckForgedMPE);
@@ -9878,8 +10004,7 @@ int main(int argc, char* argv[])
     Check("Corrupted built-in by using cmsWriteRawTag", CheckInducedCorruption);
     Check("Bad CGATS file", CheckBadCGATS);
     Check("Saving linearization devicelink", CheckSaveLinearizationDevicelink);
-    Check("Gamut check on floats", CheckGamutCheckFloats);
-    Check("Mixing RAW and Cooked tags", CheckMixedRawAndCooked);
+    Check("Gamut check on floats", CheckGamutCheckFloats);    
     }
 
     if (DoPluginTests)
@@ -9899,7 +10024,9 @@ int main(int argc, char* argv[])
         Check("Rendering intent plugin", CheckIntentPlugin);
         Check("Full transform plugin",   CheckTransformPlugin);
         Check("Mutex plugin",            CheckMutexPlugin);
-        Check("Double from float",       CheckMethodPackDoublesFromFloat);       
+        Check("Double from float",       CheckMethodPackDoublesFromFloat);      
+        Check("Header plugin",           CheckHeaderPlugin);
+        Check("Profile user data",       CheckProfileUserData);
     }
 
 

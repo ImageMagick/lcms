@@ -1581,3 +1581,375 @@ cmsInt32Number CheckMethodPackDoublesFromFloat(void)
     return 1;
 }
 
+// --------------------------------------------------------------------------------------------------
+// Header plug-in. Store a marker in the ICC header reserved area and verify it on read.
+
+#define HEADER_PLUGIN_TEST_OFFSET 100
+
+static const cmsUInt8Number HeaderPluginMarker[] = { 0x4c, 0x43, 0x4d, 0x53 };
+static cmsContext HeaderPluginContext = NULL;
+static cmsUInt32Number HeaderPluginReadCount = 0;
+static cmsUInt32Number HeaderPluginWriteCount = 0;
+static cmsBool HeaderPluginBadParameters = FALSE;
+
+static
+cmsBool ReadHeaderPluginSample(cmsContext ContextID, cmsHPROFILE hProfile, cmsIOHANDLER* io)
+{
+    cmsUInt8Number Marker[sizeof(HeaderPluginMarker)];
+
+    HeaderPluginReadCount++;
+
+    if (ContextID != HeaderPluginContext || hProfile == NULL || io == NULL ||
+        io->Tell(io) != sizeof(cmsICCHeader)) {
+        HeaderPluginBadParameters = TRUE;
+        return FALSE;
+    }
+
+    if (!io->Seek(io, HEADER_PLUGIN_TEST_OFFSET))
+        return FALSE;
+
+    if (io->Read(io, Marker, sizeof(Marker), 1) != 1)
+        return FALSE;
+
+    // Deliberately leave the cursor displaced. LittleCMS must restore it.
+    return memcmp(Marker, HeaderPluginMarker, sizeof(Marker)) == 0;
+}
+
+static
+cmsBool WriteHeaderPluginSample(cmsContext ContextID, cmsHPROFILE hProfile, cmsIOHANDLER* io)
+{
+    HeaderPluginWriteCount++;
+
+    if (ContextID != HeaderPluginContext || hProfile == NULL || io == NULL ||
+        io->Tell(io) != sizeof(cmsICCHeader)) {
+        HeaderPluginBadParameters = TRUE;
+        return FALSE;
+    }
+
+    if (!io->Seek(io, HEADER_PLUGIN_TEST_OFFSET))
+        return FALSE;
+
+    // Deliberately leave the cursor displaced. LittleCMS must restore it.
+    return io->Write(io, sizeof(HeaderPluginMarker), HeaderPluginMarker);
+}
+
+static cmsPluginHeader HeaderPluginSample = {
+    { cmsPluginMagicNumber, LCMS_VERSION, cmsPluginHeaderSig, NULL },
+    0x05000000,
+    ReadHeaderPluginSample,
+    WriteHeaderPluginSample
+};
+
+cmsInt32Number CheckHeaderPlugin(void)
+{
+    cmsContext ctx = NULL;
+    cmsPluginHeader IncompletePlugin;
+    cmsHPROFILE Profile = NULL;
+    cmsHPROFILE RoundTrip = NULL;
+    cmsHPROFILE WithoutPlugin = NULL;
+    cmsUInt8Number* Data1 = NULL;
+    cmsUInt8Number* Data2 = NULL;
+    cmsUInt32Number BytesNeeded = 0;
+    cmsUInt32Number SecondSize;
+
+    HeaderPluginReadCount = 0;
+    HeaderPluginWriteCount = 0;
+    HeaderPluginBadParameters = FALSE;
+
+    ctx = WatchDogContext(NULL);
+    if (ctx == NULL)
+        goto Error;
+
+    HeaderPluginContext = ctx;
+
+    IncompletePlugin = HeaderPluginSample;
+    IncompletePlugin.ReadPtr = NULL;
+    if (cmsPluginTHR(ctx, &IncompletePlugin)) {
+        Fail("Header plug-in without read callback was accepted");
+        goto Error;
+    }
+
+    IncompletePlugin = HeaderPluginSample;
+    IncompletePlugin.WritePtr = NULL;
+    if (cmsPluginTHR(ctx, &IncompletePlugin)) {
+        Fail("Header plug-in without write callback was accepted");
+        goto Error;
+    }
+
+    if (!cmsPluginTHR(ctx, &HeaderPluginSample)) {
+        Fail("Cannot install header plug-in");
+        goto Error;
+    }
+
+    Profile = cmsCreate_sRGBProfileTHR(ctx);
+    if (Profile == NULL) {
+        Fail("Cannot create profile for header plug-in test");
+        goto Error;
+    }
+
+    // ICC 5.0 is accepted because the header plug-in declares responsibility for it.
+    cmsSetEncodedICCversion(Profile, 0x05000000);
+
+    // The plug-in ceiling is inclusive. ICC 5.1 must still be rejected.
+    cmsSetEncodedICCversion(Profile, 0x05100000);
+    cmsSetLogErrorHandlerTHR(ctx, NULL);
+    if (cmsSaveProfileToMem(Profile, NULL, &BytesNeeded)) {
+        Fail("Header plug-in accepted a profile above its declared version");
+        goto Error;
+    }
+    cmsSetEncodedICCversion(Profile, 0x05000000);
+    BytesNeeded = 0;
+
+    if (!cmsSaveProfileToMem(Profile, NULL, &BytesNeeded) || BytesNeeded == 0) {
+        Fail("Cannot calculate profile size with header plug-in");
+        goto Error;
+    }
+
+    if (HeaderPluginWriteCount != 1) {
+        Fail("Header write plug-in was not called during sizing pass");
+        goto Error;
+    }
+
+    Data1 = (cmsUInt8Number*)malloc(BytesNeeded);
+    Data2 = (cmsUInt8Number*)malloc(BytesNeeded);
+    if (Data1 == NULL || Data2 == NULL)
+        goto Error;
+
+    SecondSize = BytesNeeded;
+    if (!cmsSaveProfileToMem(Profile, Data1, &SecondSize)) {
+        Fail("Cannot serialize profile with header plug-in");
+        goto Error;
+    }
+
+    if (SecondSize != BytesNeeded || HeaderPluginWriteCount != 3) {
+        Fail("Unexpected header write plug-in call count");
+        goto Error;
+    }
+
+    SecondSize = BytesNeeded;
+    if (!cmsSaveProfileToMem(Profile, Data2, &SecondSize)) {
+        Fail("Cannot repeat profile serialization with header plug-in");
+        goto Error;
+    }
+
+    if (SecondSize != BytesNeeded || HeaderPluginWriteCount != 5 ||
+        memcmp(Data1, Data2, BytesNeeded) != 0) {
+        Fail("Header write plug-in is not stateless");
+        goto Error;
+    }
+
+    if (memcmp(Data1 + HEADER_PLUGIN_TEST_OFFSET,
+               HeaderPluginMarker, sizeof(HeaderPluginMarker)) != 0) {
+        Fail("Header write plug-in marker was not serialized");
+        goto Error;
+    }
+
+    // Without a header plug-in the core must reject versions newer than ICC 4.4.
+    cmsSetLogErrorHandler(NULL);
+    WithoutPlugin = cmsOpenProfileFromMem(Data1, BytesNeeded);
+    if (WithoutPlugin != NULL) {
+        Fail("Core accepted an ICC 5.0 profile without a header plug-in");
+        goto Error;
+    }
+    ResetFatalError();
+
+    WithoutPlugin = cmsCreate_sRGBProfile();
+    if (WithoutPlugin == NULL) {
+        Fail("Cannot create profile for default version limit test");
+        goto Error;
+    }
+
+    cmsSetEncodedICCversion(WithoutPlugin, 0x04400000);
+    SecondSize = 0;
+    if (!cmsSaveProfileToMem(WithoutPlugin, NULL, &SecondSize)) {
+        Fail("Core rejected an ICC 4.4 profile without a header plug-in");
+        goto Error;
+    }
+
+    cmsSetEncodedICCversion(WithoutPlugin, 0x04500000);
+    SecondSize = 0;
+    cmsSetLogErrorHandler(NULL);
+    if (cmsSaveProfileToMem(WithoutPlugin, NULL, &SecondSize)) {
+        Fail("Core accepted an ICC 4.5 profile without a header plug-in");
+        goto Error;
+    }
+    ResetFatalError();
+    cmsCloseProfile(WithoutPlugin);
+    WithoutPlugin = NULL;
+
+    RoundTrip = cmsOpenProfileFromMemTHR(ctx, Data1, BytesNeeded);
+    if (RoundTrip == NULL || HeaderPluginReadCount != 1) {
+        Fail("Header read plug-in failed");
+        goto Error;
+    }
+
+    if (HeaderPluginBadParameters) {
+        Fail("Header plug-in received invalid parameters or I/O position");
+        goto Error;
+    }
+
+    cmsCloseProfile(RoundTrip);
+    cmsCloseProfile(Profile);
+    free(Data1);
+    free(Data2);
+    cmsDeleteContext(ctx);
+    HeaderPluginContext = NULL;
+    return 1;
+
+Error:
+    if (WithoutPlugin != NULL) cmsCloseProfile(WithoutPlugin);
+    if (RoundTrip != NULL) cmsCloseProfile(RoundTrip);
+    if (Profile != NULL) cmsCloseProfile(Profile);
+    if (Data1 != NULL) free(Data1);
+    if (Data2 != NULL) free(Data2);
+    if (ctx != NULL) cmsDeleteContext(ctx);
+    HeaderPluginContext = NULL;
+    return 0;
+}
+
+// Check user data on profiles
+static cmsUInt32Number ProfileUserDataFreeCount = 0;
+
+static
+void FreeProfileUserData(cmsContext ContextID, void* Data)
+{
+    ProfileUserDataFreeCount++;
+    _cmsFree(ContextID, Data);
+}
+
+cmsInt32Number CheckProfileUserData(void)
+{
+    cmsHPROFILE p1 = NULL;
+    cmsHPROFILE p2 = NULL;
+    _cmsICCPROFILE* Icc1;
+    _cmsICCPROFILE* Icc2;
+    cmsUInt32Number* Data1 = NULL;
+    cmsUInt32Number* Data2 = NULL;
+    cmsUInt32Number* Data3 = NULL;
+    cmsUInt32Number* Data4 = NULL;
+
+    ProfileUserDataFreeCount = 0;
+
+    p1 = cmsCreateProfilePlaceholder(NULL);
+    p2 = cmsCreateProfilePlaceholder(NULL);
+
+    if (p1 == NULL || p2 == NULL) {
+        Fail("Cannot create profile placeholders");
+        goto Error;
+    }
+
+    Icc1 = (_cmsICCPROFILE*)p1;
+    Icc2 = (_cmsICCPROFILE*)p2;
+
+    if (_cmsGetProfileUserData(Icc1) != NULL) {
+        Fail("Profile user data is not initially NULL");
+        goto Error;
+    }
+
+    Data1 = (cmsUInt32Number*)_cmsMalloc(NULL, sizeof(cmsUInt32Number));
+    if (Data1 == NULL) goto Error;
+
+    *Data1 = 1;
+
+    _cmsSetProfileUserData(Icc1, Data1, FreeProfileUserData);
+    Data1 = NULL;
+
+    if (_cmsGetProfileUserData(Icc1) == NULL ||
+        *((cmsUInt32Number*)_cmsGetProfileUserData(Icc1)) != 1) {
+        Fail("Cannot set or retrieve profile user data");
+        goto Error;
+    }
+
+    Data2 = (cmsUInt32Number*)_cmsMalloc(NULL, sizeof(cmsUInt32Number));
+    if (Data2 == NULL) goto Error;
+
+    *Data2 = 2;
+
+    _cmsSetProfileUserData(Icc1, Data2, FreeProfileUserData);
+    Data2 = NULL;
+
+    if (ProfileUserDataFreeCount != 1) {
+        Fail("Replacing profile user data did not free old data");
+        goto Error;
+    }
+
+    if (*((cmsUInt32Number*)_cmsGetProfileUserData(Icc1)) != 2) {
+        Fail("Replacing profile user data failed");
+        goto Error;
+    }
+
+    Data3 = (cmsUInt32Number*)_cmsMalloc(NULL, sizeof(cmsUInt32Number));
+    if (Data3 == NULL) goto Error;
+
+    *Data3 = 3;
+
+    _cmsSetProfileUserData(Icc2, Data3, FreeProfileUserData);
+    Data3 = NULL;
+
+    if (_cmsGetProfileUserData(Icc2) == _cmsGetProfileUserData(Icc1)) {
+        Fail("Profile user data is shared between profiles");
+        goto Error;
+    }
+
+    _cmsSetProfileUserData(Icc1, NULL, NULL);
+
+    if (ProfileUserDataFreeCount != 2 ||
+        _cmsGetProfileUserData(Icc1) != NULL) {
+        Fail("Clearing profile user data failed");
+        goto Error;
+    }
+
+    cmsCloseProfile(p1);
+    p1 = NULL;
+
+    if (ProfileUserDataFreeCount != 2) {
+        Fail("Unexpected free while closing empty profile");
+        goto Error;
+    }
+
+    cmsCloseProfile(p2);
+    p2 = NULL;
+
+    if (ProfileUserDataFreeCount != 3) {
+        Fail("Custom profile user data was not freed on close");
+        return 0;
+    }
+
+    p2 = cmsCreateProfilePlaceholder(NULL);
+    if (p2 == NULL) {
+        Fail("Cannot create profile placeholder");
+        goto Error;
+    }
+
+    Icc2 = (_cmsICCPROFILE*)p2;
+
+    /*
+     * With no free callback, ownership remains with the caller.
+     */
+    Data4 = (cmsUInt32Number*)_cmsMalloc(NULL, sizeof(cmsUInt32Number));
+    if (Data4 == NULL) goto Error;
+
+    *Data4 = 4;
+
+    _cmsSetProfileUserData(Icc2, Data4, NULL);
+
+    cmsCloseProfile(p2);
+    p2 = NULL;
+
+    _cmsFree(NULL, Data4);
+    Data4 = NULL;
+
+    return 1;
+
+Error:
+
+    if (Data1 != NULL) _cmsFree(NULL, Data1);
+    if (Data2 != NULL) _cmsFree(NULL, Data2);
+    if (Data3 != NULL) _cmsFree(NULL, Data3);
+    if (Data4 != NULL) _cmsFree(NULL, Data4);
+
+    if (p1 != NULL) cmsCloseProfile(p1);
+    if (p2 != NULL) cmsCloseProfile(p2);
+
+    return 0;
+}

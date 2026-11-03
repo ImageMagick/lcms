@@ -23,19 +23,10 @@
 //
 //---------------------------------------------------------------------------------
 //
-// Version 2.19
+// Version 2.20
 //
 
 #ifndef _lcms2_H
-
-#ifdef _MSC_VER
-#  if defined(_DLL) && !defined(_LIB)
-#    define CMS_DLL 1
-#    if defined(_LCMSLIB_)
-#      define CMS_DLL_BUILD 1
-#    endif
-#  endif
-#endif
 
 // ********** Configuration toggles ****************************************
 
@@ -95,15 +86,17 @@
 
 #ifndef CMS_USE_CPP_API
 #   ifdef __cplusplus
-#       if __cplusplus >= 201703L
-#            define CMS_NO_REGISTER_KEYWORD 1  
+        // MSVC keeps __cplusplus at 199711L unless /Zc:__cplusplus is passed, so also
+        // honor _MSVC_LANG; otherwise the C++17 'register' removal below never triggers.
+#       if (__cplusplus >= 201703L) || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
+#            define CMS_NO_REGISTER_KEYWORD 1
 #       endif
 extern "C" {
 #   endif
 #endif
 
 // Version/release
-#define LCMS_VERSION        2190
+#define LCMS_VERSION        2200
 
 // I will give the chance of redefining basic types for compilers that are not fully C99 compliant
 #ifndef CMS_BASIC_TYPES_ALREADY_DEFINED
@@ -174,7 +167,11 @@ typedef double               cmsFloat64Number;
 #endif
 
 // Handle "register" keyword
+#if defined(CMS_NO_REGISTER_KEYWORD)
 #  define CMSREGISTER
+#else
+#  define CMSREGISTER register
+#endif
 
 // In the case 64 bit numbers are not supported by the compiler
 #ifdef CMS_DONT_USE_INT64
