@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "Tools"))
 
 from dependency_updater import Step, Updater
 
-URL = "https://github.com/mm2/Little-CMS/releases/download/lcms{version_short}/lcms2-{version_short}.tar.gz"
+URL = "https://github.com/mm2/Little-CMS/releases/download/lcms{version}/lcms2-{version}.tar.gz"
 
 
 def update_source(updater):
